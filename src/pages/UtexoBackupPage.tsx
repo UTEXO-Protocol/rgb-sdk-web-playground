@@ -14,7 +14,7 @@ import { OutputBox } from '../components/OutputBox';
 import { useActiveWallet } from '../hooks/useActiveWallet';
 import { downloadBytes } from '../lib/utils';
 
-const VSS_URL = window.location.origin + '/vss';
+const VSS_URL = 'https://vss-server.utexo.com';
 
 export function UtexoBackupPage() {
   const addLog = useStore((s) => s.addLog);
@@ -109,8 +109,15 @@ export function UtexoBackupPage() {
       addLog('Configuring VSS backup...', 'info');
       await utexo.configureVssBackup(config);
       addLog('VSS backup starting...', 'info');
-      await utexo.vssBackup(config, vssMnemonic.trim());
-      setVssBackupOut('VSS backup complete\nServer: ' + vssUrl + '\nNetwork: ' + vssNetwork);
+      const version = await utexo.vssBackup(config, vssMnemonic.trim());
+      setVssBackupOut(
+        'VSS backup complete\n' +
+        'Server: ' + vssUrl + '\n' +
+        'Network: ' + vssNetwork + '\n' +
+        'layer1 store: ' + config.storeId + '_layer1\n' +
+        'utexo store:  ' + config.storeId + '_utexo\n' +
+        'version: ' + version
+      );
       addLog('UTEXOWallet VSS backup complete', 'ok');
     } catch (e) {
       setVssBackupOut('Error: ' + e);
@@ -121,9 +128,17 @@ export function UtexoBackupPage() {
   async function handleVssRestore() {
     if (!vssRestoreMnemonic.trim()) { setVssRestoreOut('Enter your mnemonic'); return; }
     try {
+      addLog('Building VSS config...', 'info');
+      const config = await buildVssConfigFromMnemonic(vssRestoreMnemonic.trim(), vssRestoreUrl, vssRestoreNetwork);
       addLog('Restoring from VSS (' + vssRestoreNetwork + ')...', 'info');
-      await restoreUtxoWalletFromVss({ mnemonic: vssRestoreMnemonic.trim(), networkPreset: vssRestoreNetwork, vssServerUrl: vssRestoreUrl });
-      setVssRestoreOut('VSS restore complete. IndexedDB updated.\nCreate a new UTEXOWallet on the Wallet page to load the restored state.\n✓ This restore persists across page refreshes.');
+      await restoreUtxoWalletFromVss({ mnemonic: vssRestoreMnemonic.trim(), config, networkPreset: vssRestoreNetwork, vssServerUrl: vssRestoreUrl });
+      setVssRestoreOut(
+        'VSS restore complete. IndexedDB updated.\n' +
+        'layer1 store: ' + config.storeId + '_layer1\n' +
+        'utexo store:  ' + config.storeId + '_utexo\n' +
+        'Create a new UTEXOWallet on the Wallet page to load the restored state.\n' +
+        '✓ This restore persists across page refreshes.'
+      );
       addLog('VSS restore complete', 'ok');
     } catch (e) {
       setVssRestoreOut('Error: ' + e);

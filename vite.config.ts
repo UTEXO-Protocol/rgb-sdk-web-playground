@@ -36,17 +36,6 @@ export default defineConfig({
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/esplora/, ''),
       },
-      // Remote Esplora API (utexo.com — no CORS headers)
-      '/utexo-api': {
-        target: 'https://esplora-api.utexo.com',
-        changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/utexo-api/, ''),
-      },
-      // VSS cloud backup server (no CORS headers on the server)
-      '/vss': {
-        target: 'https://vss-server.utexo.com',
-        changeOrigin: true,
-      },
     },
     fs: {
       // Allow serving WASM files from sibling local packages

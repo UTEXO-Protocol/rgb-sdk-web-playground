@@ -26,7 +26,7 @@ export function WalletPage() {
   const activeWallet = useActiveWallet();
 
   const [walletType, setWalletType] = useState<'manager' | 'utexo'>('manager');
-  const [network, setNetwork] = useState('signet');
+  const [network, setNetwork] = useState('utexo');
   const [mnemonic, setMnemonic] = useState('');
   const [label, setLabel] = useState('');
   const [indexerUrl, setIndexerUrl] = useState('');
@@ -41,7 +41,7 @@ export function WalletPage() {
   }, [network]);
 
   // UTEXOWallet only supports mainnet/testnet
-  const managerNetworks = ['signet', 'testnet', 'testnet4', 'regtest', 'mainnet'];
+  const managerNetworks = ['utexo', 'signet', 'testnet', 'testnet4', 'regtest', 'mainnet'];
   const utexoNetworks = ['testnet', 'mainnet'];
 
   function effectiveNetwork() {

@@ -15,7 +15,7 @@ import { OutputBox } from '../components/OutputBox';
 import { useActiveWallet } from '../hooks/useActiveWallet';
 import { downloadBytes } from '../lib/utils';
 
-const VSS_URL = window.location.origin + '/vss';
+const VSS_URL = 'https://vss-server.utexo.com';
 
 function GroupHeading({ title, badge }: { title: string; badge: string }) {
   return (

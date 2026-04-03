@@ -330,7 +330,7 @@ export function UtexoWalletPage() {
 
   async function handleBtcEnd() {
     if (!utexo || !btcSignedPsbt) { setBtcOut('Sign PSBT first'); return; }
-    const txid = await utexo.sendBtcEnd(btcSignedPsbt);
+    const txid = await utexo.sendBtcEnd({ signedPsbt: btcSignedPsbt });
     setBtcPendingPsbt(null); setBtcSignedPsbt(null);
     setBtcOut('Sent! txid: ' + txid);
     addLog('BTC sent: ' + txid, 'ok');

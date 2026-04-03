@@ -11,9 +11,8 @@ export const REGTEST_PROXY_HTTP_URL: string =
 export const REGTEST_PROXY_RPC_URL: string =
   (import.meta.env.VITE_REGTEST_PROXY_RPC_URL as string) ?? 'rpc://localhost:3000/json-rpc';
 
-/** Rewrite remote esplora URLs through the Vite dev-server proxy to avoid CORS. */
 export function proxyIndexerUrl(url: string): string {
-  return url.replace('https://esplora-api.utexo.com', window.location.origin + '/utexo-api');
+  return url;
 }
 
 export function getIndexerUrl(network = 'signet'): string {

@@ -11,9 +11,9 @@ import { OutputBox } from '../components/OutputBox';
 import { useActiveWallet } from '../hooks/useActiveWallet';
 import { downloadBytes } from '../lib/utils';
 
-const VSS_URL = window.location.origin + '/vss';
+const VSS_URL = 'https://vss-server.utexo.com';
 
-const MANAGER_NETWORKS = ['signet', 'testnet', 'regtest', 'mainnet'] as const;
+const MANAGER_NETWORKS = ['utexo', 'signet', 'testnet', 'regtest', 'mainnet'] as const;
 
 export function WalletManagerBackupPage() {
   const addLog = useStore((s) => s.addLog);
@@ -155,7 +155,7 @@ export function WalletManagerBackupPage() {
     <div>
       <h1 className="text-[#58a6ff] text-2xl font-bold mb-1">Backup & Restore — WalletManager</h1>
       <p className="text-[#8b949e] text-sm mb-8">
-        Encrypted file backup and VSS cloud backup for WalletManager wallets (signet / testnet / regtest / mainnet)
+        Encrypted file backup and VSS cloud backup for WalletManager wallets (signet / testnet / regtest / mainnet / utexo)
       </p>
 
       <Section title="1. File Backup" hint="createBackup() — encrypted bytes in memory, no filesystem access.">
