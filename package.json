@@ -8,7 +8,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@utexo/rgb-sdk-web": "file:../rgb-sdk-web",
+    "@utexo/rgb-sdk-web": "1.0.0-beta.3",
     "react": "^18.3.0",
     "react-dom": "^18.3.0",
     "react-router-dom": "^6.26.0",
