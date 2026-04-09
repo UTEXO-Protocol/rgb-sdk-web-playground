@@ -105,6 +105,7 @@ async function restoreEntry(entry: SessionEntry): Promise<WalletInstance | null>
       network: config.network,
       indexerUrl: config.indexerUrl ? proxyIndexerUrl(config.indexerUrl) : undefined,
       transportEndpoint: config.transportEndpoint || undefined,
+      reuseAddresses: config.reuseAddresses,
     });
     if (config.indexerUrl) {
       try { await m.goOnline(proxyIndexerUrl(config.indexerUrl)); } catch {}

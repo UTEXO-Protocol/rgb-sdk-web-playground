@@ -31,6 +31,7 @@ export function WalletPage() {
   const [label, setLabel] = useState('');
   const [indexerUrl, setIndexerUrl] = useState('');
   const [transportEndpoint, setTransportEndpoint] = useState('');
+  const [reuseAddresses, setReuseAddresses] = useState(false);
   const [creating, setCreating] = useState(false);
   const [createOut, setCreateOut] = useState('');
   const [showMnemonic, setShowMnemonic] = useState(false);
@@ -81,6 +82,7 @@ export function WalletPage() {
           network: net,
           indexerUrl: indexerUrl ? proxyIndexerUrl(indexerUrl) : undefined,
           transportEndpoint: transportEndpoint || undefined,
+          reuseAddresses,
         });
 
         const config: WalletConfig = {
@@ -91,6 +93,7 @@ export function WalletPage() {
           xpubVan: keys.accountXpubVanilla,
           xpubCol: keys.accountXpubColored,
           mnemonic: mnemonic.trim(),
+          reuseAddresses,
         };
 
         const w: WalletInstance = {
@@ -217,14 +220,25 @@ export function WalletPage() {
         </div>
 
         {walletType === 'manager' && (
-          <div className="flex gap-4 mb-4 flex-wrap">
-            <Field label="Indexer URL">
-              <input value={indexerUrl} onChange={(e) => setIndexerUrl(e.target.value)} className={inputCls} />
-            </Field>
-            <Field label="Transport endpoint (RGB proxy)">
-              <input value={transportEndpoint} onChange={(e) => setTransportEndpoint(e.target.value)} className={inputCls} />
-            </Field>
-          </div>
+          <>
+            <div className="flex gap-4 mb-4 flex-wrap">
+              <Field label="Indexer URL">
+                <input value={indexerUrl} onChange={(e) => setIndexerUrl(e.target.value)} className={inputCls} />
+              </Field>
+              <Field label="Transport endpoint (RGB proxy)">
+                <input value={transportEndpoint} onChange={(e) => setTransportEndpoint(e.target.value)} className={inputCls} />
+              </Field>
+            </div>
+            <label className="flex items-center gap-2 mb-4 cursor-pointer select-none text-sm text-[#c9d1d9]">
+              <input
+                type="checkbox"
+                checked={reuseAddresses}
+                onChange={(e) => setReuseAddresses(e.target.checked)}
+                className="w-4 h-4 accent-[#58a6ff]"
+              />
+              reuseAddresses — pin address per keychain, rotate with <code className="text-[#79c0ff]">rotateVanillaAddress()</code> / <code className="text-[#79c0ff]">rotateColoredAddress()</code>
+            </label>
+          </>
         )}
 
         <Btn onClick={handleCreate} disabled={creating}>
@@ -240,6 +254,7 @@ export function WalletPage() {
             <div><span className="text-[#8b949e]">type:</span> <span className="text-[#58a6ff]">{activeWallet.type}</span></div>
             <div><span className="text-[#8b949e]">network:</span> <span className="text-[#c9d1d9]">{activeWallet.config.network}</span></div>
             <div><span className="text-[#8b949e]">online:</span> <span className={activeWallet.online ? 'text-[#3fb950]' : 'text-[#484f58]'}>{activeWallet.online ? 'yes' : 'no'}</span></div>
+            <div><span className="text-[#8b949e]">reuseAddresses:</span> <span className={activeWallet.config.reuseAddresses ? 'text-[#3fb950]' : 'text-[#484f58]'}>{activeWallet.config.reuseAddresses ? 'yes' : 'no'}</span></div>
             {activeWallet.config.indexerUrl && (
               <div><span className="text-[#8b949e]">indexer:</span> <span className="text-[#c9d1d9]">{activeWallet.config.indexerUrl}</span></div>
             )}
