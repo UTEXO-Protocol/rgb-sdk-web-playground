@@ -29,6 +29,7 @@ export interface WalletConfig {
   xpubVan: string;
   xpubCol: string;
   mnemonic: string;
+  reuseAddresses?: boolean;
 }
 
 export interface WalletInstance {

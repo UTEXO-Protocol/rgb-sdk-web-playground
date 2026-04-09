@@ -54,6 +54,10 @@ export function ManagerOps({ manager, walletId }: Props) {
   const [estimateFeePsbt, setEstimateFeePsbt] = useState('');
   const [cryptoOut, setCryptoOut] = useState('');
 
+  // Rotate address
+  const [rotateVanillaOut, setRotateVanillaOut] = useState('');
+  const [rotateColoredOut, setRotateColoredOut] = useState('');
+
   // Outputs
   const [infoOut, setInfoOut] = useState('');
   const [syncOut, setSyncOut] = useState('');
@@ -82,6 +86,28 @@ export function ManagerOps({ manager, walletId }: Props) {
       setInfoOut('Address: ' + addr);
       addLog('Address: ' + addr, 'ok');
     } catch (e) { setInfoOut('Error: ' + e); }
+  }
+
+  async function handleRotateVanillaAddress() {
+    try {
+      const addr = await manager.rotateVanillaAddress();
+      setRotateVanillaOut('New vanilla address: ' + addr);
+      addLog('rotateVanillaAddress(): ' + addr, 'ok');
+    } catch (e) {
+      setRotateVanillaOut('Error: ' + e);
+      addLog('rotateVanillaAddress failed: ' + e, 'err');
+    }
+  }
+
+  async function handleRotateColoredAddress() {
+    try {
+      const addr = await manager.rotateColoredAddress();
+      setRotateColoredOut('New colored address: ' + addr);
+      addLog('rotateColoredAddress(): ' + addr, 'ok');
+    } catch (e) {
+      setRotateColoredOut('Error: ' + e);
+      addLog('rotateColoredAddress failed: ' + e, 'err');
+    }
   }
 
   async function handleGetBalance() {
@@ -369,6 +395,19 @@ export function ManagerOps({ manager, walletId }: Props) {
           <Btn variant="secondary" onClick={handleRegisterWallet}>registerWallet()</Btn>
         </div>
         <OutputBox value={infoOut} />
+      </Section>
+
+      {/* Address Reuse */}
+      <Section title="rotateVanillaAddress() / rotateColoredAddress()">
+        <p className="text-[#8b949e] text-xs mb-3">
+          Rotate the pinned address for a keychain. Requires the wallet to have been created with <code className="text-[#79c0ff]">reuseAddresses: true</code>.
+          Vanilla = BTC (keychain 0), Colored = RGB (keychain 1).
+        </p>
+        <div className="flex gap-3 mb-2 flex-wrap">
+          <Btn onClick={handleRotateVanillaAddress}>rotateVanillaAddress()</Btn>
+          <Btn onClick={handleRotateColoredAddress}>rotateColoredAddress()</Btn>
+        </div>
+        <OutputBox value={rotateVanillaOut || rotateColoredOut} />
       </Section>
 
       {/* Create UTXOs */}
