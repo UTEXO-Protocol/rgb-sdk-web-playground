@@ -27,8 +27,11 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Normalize registry owner
+        run: echo "REGISTRY_OWNER_LC=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_ENV"
+
       - name: Build & push docker images
-        run: make docker ENVIRONMENT=-dev IMAGE_TAG=${{ env.IMAGE_TAG }} REGISTRY_HOST=ghcr.io/${{ github.repository_owner }}
+        run: make docker ENVIRONMENT=-dev IMAGE_TAG=${{ env.IMAGE_TAG }} REGISTRY_HOST=ghcr.io/${{ env.REGISTRY_OWNER_LC }}
 
   deploy:
     needs: build-dev
