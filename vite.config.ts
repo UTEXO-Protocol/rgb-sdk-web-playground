@@ -4,18 +4,23 @@ import wasm from 'vite-plugin-wasm';
 import topLevelAwait from 'vite-plugin-top-level-await';
 import { nodePolyfills } from 'vite-plugin-node-polyfills';
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { createRequire } from 'module';
 
 const require = createRequire(import.meta.url);
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const localRgbSdkCorePath = path.resolve(__dirname, '../rgb-sdk-core/src/index.ts');
+const localAliases = fs.existsSync(localRgbSdkCorePath)
+  ? { '@utexo/rgb-sdk-core': localRgbSdkCorePath }
+  : {};
 
 export default defineConfig({
   resolve: {
-    alias: {
-      '@utexo/rgb-sdk-core': path.resolve(__dirname, '../rgb-sdk-core/src/index.ts'),
-    },
+    // Use local sibling core package only when it exists (local monorepo dev).
+    // In CI/Docker this path does not exist, so Vite should resolve from npm package.
+    alias: localAliases,
   },
   build: {
     rollupOptions: {
