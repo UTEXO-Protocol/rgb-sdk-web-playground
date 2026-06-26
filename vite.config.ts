@@ -66,6 +66,7 @@ export default defineConfig({
         path.resolve(__dirname, '../rgb-sdk-web'),
         path.resolve(__dirname, '../rgb-lib-wasm'),
         path.resolve(__dirname, '../rgb-sdk-core'),
+        path.resolve(__dirname, '../../utexo/rgb-lightning-node/bindings/wasm-sdk/pkg'),
       ],
     },
   },

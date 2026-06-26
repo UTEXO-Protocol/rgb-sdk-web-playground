@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
-import { initWasm } from '@utexo/rgb-sdk-web';
+import { initWasm, initRlnWasm } from '@utexo/rgb-sdk-web';
 import { Layout } from './components/Layout';
 import { useStore } from './store';
 import { autoRestore, getSavedActiveWalletId, setUrlWallet } from './lib/session';
@@ -12,6 +12,8 @@ import { RgbAssetsPage } from './pages/RgbAssetsPage';
 import { WalletManagerBackupPage } from './pages/WalletManagerBackupPage';
 import { UtexoBackupPage } from './pages/UtexoBackupPage';
 import { UtexoWalletPage } from './pages/UtexoWalletPage';
+import { RlnWalletPage } from './pages/RlnWalletPage';
+import { RlnFlowGuidePage } from './pages/RlnFlowGuidePage';
 
 function App() {
   const setSdkStatus = useStore((s) => s.setSdkStatus);
@@ -23,7 +25,7 @@ function App() {
     if (didInit.current) return;
     didInit.current = true;
     setSdkStatus('loading');
-    initWasm()
+    Promise.all([initWasm(), initRlnWasm()])
       .then(async () => {
         setSdkStatus('ready');
         addLog('SDK initialized', 'ok');
@@ -71,6 +73,8 @@ function App() {
           <Route path="/backup/manager" element={<WalletManagerBackupPage />} />
           <Route path="/backup/utexo" element={<UtexoBackupPage />} />
           <Route path="/utexo-wallet" element={<UtexoWalletPage />} />
+          <Route path="/rln-wallet" element={<RlnWalletPage />} />
+          <Route path="/rln-flow" element={<RlnFlowGuidePage />} />
         </Routes>
       </Layout>
     </BrowserRouter>

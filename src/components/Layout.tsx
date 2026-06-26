@@ -13,6 +13,8 @@ const navLinks = [
   { to: '/bitcoin', label: 'Bitcoin' },
   { to: '/rgb-assets', label: 'RGB Assets' },
   { to: '/utexo-wallet', label: 'UTXO Wallet' },
+  { to: '/rln-wallet', label: 'RLN Wallet' },
+  { to: '/rln-flow', label: 'RLN Flow' },
   { to: '/backup/manager', label: 'Backup MGR' },
   { to: '/backup/utexo', label: 'Backup UTXO' },
 ];
@@ -181,7 +183,7 @@ export function Layout({ children }: LayoutProps) {
                 ))}
               </select>
               <span className="text-xs text-[#484f58]">
-                {activeWallet?.type === 'manager' ? 'MGR' : activeWallet?.type === 'utexo' ? 'UTXO' : ''}
+                {activeWallet?.type === 'manager' ? 'MGR' : activeWallet?.type === 'utexo' ? 'UTXO' : activeWallet?.type === 'rln' ? 'RLN' : ''}
               </span>
               <button
                 onClick={handleRemoveActive}

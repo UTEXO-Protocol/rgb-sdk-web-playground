@@ -1,4 +1,4 @@
-import { deriveKeysFromMnemonic, WalletManager, UTEXOWallet } from '@utexo/rgb-sdk-web';
+import { deriveKeysFromMnemonic, WalletManager, UTEXOWallet, RlnWalletManager, initRlnWasm } from '@utexo/rgb-sdk-web';
 import { proxyIndexerUrl } from './utils';
 import type { WalletInstance, WalletConfig } from '../store';
 
@@ -8,7 +8,7 @@ const ACTIVE_KEY = 'rgb_active_wallet_id';  // sessionStorage — per-tab
 interface SessionEntry {
   id: string;
   label: string;
-  type: 'manager' | 'utexo';
+  type: 'manager' | 'utexo' | 'rln';
   config: WalletConfig;
 }
 
@@ -137,6 +137,48 @@ async function restoreEntry(entry: SessionEntry): Promise<WalletInstance | null>
       config,
       instance: w,
       online: !!config.indexerUrl,
+    };
+  }
+
+  if (type === 'rln') {
+    console.log('[RLN restore] entry:', entry.id, entry.label, 'network:', config.network, 'hasPassword:', !!config.password);
+    if (!config.password) {
+      console.warn('[RLN restore] skipping — no password in config');
+      return null; // can't restore without password
+    }
+    await initRlnWasm();
+    console.log('[RLN restore] initRlnWasm ok, calling RlnWalletManager.create...');
+    let m: Awaited<ReturnType<typeof RlnWalletManager.create>>;
+    try {
+      m = await RlnWalletManager.create({
+        mnemonic: config.mnemonic,
+        password: config.password,
+        network: config.network,
+        proxyUrl: config.proxyUrl || undefined,
+        transportEndpoint: config.transportEndpoint || undefined,
+        nodeRuntimeId: config.nodeRuntimeId || undefined,
+      });
+      console.log('[RLN restore] RlnWalletManager.create ok');
+    } catch (e) {
+      console.error('[RLN restore] RlnWalletManager.create FAILED:', String(e));
+      throw e;
+    }
+    // Pass undefined to fall back to DEFAULT_INDEXER_URLS for the network
+    const rlnIndexer = config.indexerUrl ? proxyIndexerUrl(config.indexerUrl) : undefined;
+    console.log('[RLN restore] goOnline start, indexer:', rlnIndexer ?? '(default)');
+    try {
+      await m.goOnline(rlnIndexer);
+      console.log('[RLN restore] goOnline ok');
+    } catch (e) {
+      console.warn('[RLN restore] goOnline failed (non-fatal):', String(e));
+    }
+    return {
+      id: entry.id,
+      label: entry.label,
+      type: 'rln',
+      config,
+      instance: m,
+      online: true, // goOnline always attempted (uses default URL if none saved)
     };
   }
 

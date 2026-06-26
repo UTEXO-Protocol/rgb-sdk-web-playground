@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { WalletManager, UTEXOWallet } from '@utexo/rgb-sdk-web';
+import type { WalletManager, UTEXOWallet, RlnWalletManager } from '@utexo/rgb-sdk-web';
 import { wrapWallet } from './lib/wrapWallet';
 
 type LogLevel = 'ok' | 'err' | 'warn' | 'info';
@@ -30,14 +30,20 @@ export interface WalletConfig {
   xpubCol: string;
   mnemonic: string;
   reuseAddresses?: boolean;
+  /** RLN SDK password (stored for session restore) */
+  password?: string;
+  /** WebSocket proxy URL for the LN node. When unset, transportEndpoint is used as fallback. */
+  proxyUrl?: string;
+  /** Stable runtime ID for persistent LN node state across page reloads */
+  nodeRuntimeId?: string;
 }
 
 export interface WalletInstance {
   id: string;
   label: string;
-  type: 'manager' | 'utexo';
+  type: 'manager' | 'utexo' | 'rln';
   config: WalletConfig;
-  instance: WalletManager | UTEXOWallet;
+  instance: WalletManager | UTEXOWallet | RlnWalletManager;
   online: boolean;
 }
 

@@ -1,7 +1,12 @@
-import { DEFAULT_TRANSPORT_ENDPOINTS, DEFAULT_INDEXER_URLS } from '@utexo/rgb-sdk-web';
+import { DEFAULT_TRANSPORT_ENDPOINTS, DEFAULT_INDEXER_URLS, getRlnUrls } from '@utexo/rgb-sdk-web';
 
 export const json = (obj: unknown): string =>
-  JSON.stringify(obj, (_, v) => (typeof v === 'bigint' ? v.toString() : v), 2);
+  JSON.stringify(obj, (_, v) => {
+    if (typeof v === 'bigint') return v.toString();
+    if (v instanceof Map) return Object.fromEntries(v);
+    if (v instanceof Set) return [...v];
+    return v;
+  }, 2);
 
 // Regtest infrastructure URLs (override via .env VITE_REGTEST_* variables)
 export const REGTEST_INDEXER_URL: string =
@@ -26,6 +31,18 @@ export function getTransportEndpoint(network = 'signet'): string {
   if (network === 'regtest') return REGTEST_PROXY_RPC_URL;
   return (DEFAULT_TRANSPORT_ENDPOINTS as Record<string, string>)[network]
     ?? (DEFAULT_TRANSPORT_ENDPOINTS as Record<string, string>).signet;
+}
+
+export function getRlnIndexerUrl(network = 'utexo'): string {
+  return getRlnUrls(network)?.indexerUrl ?? getIndexerUrl(network);
+}
+
+export function getRlnTransportEndpoint(network = 'utexo'): string {
+  return getRlnUrls(network)?.transportEndpoint ?? getTransportEndpoint(network);
+}
+
+export function getRlnProxyUrl(network = 'utexo'): string {
+  return getRlnUrls(network)?.proxyUrl ?? '';
 }
 
 export const FAUCET_BASE_URL =
