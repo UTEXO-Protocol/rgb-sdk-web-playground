@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { WalletManager, UTEXOWallet, RlnWalletManager } from '@utexo/rgb-sdk-web';
+import type { UTEXOWallet, RlnWalletManager } from '@utexo/rgb-sdk-web';
 import { wrapWallet } from './lib/wrapWallet';
 
 type LogLevel = 'ok' | 'err' | 'warn' | 'info';
@@ -41,9 +41,9 @@ export interface WalletConfig {
 export interface WalletInstance {
   id: string;
   label: string;
-  type: 'manager' | 'utexo' | 'rln';
+  type: 'utexo' | 'rln';
   config: WalletConfig;
-  instance: WalletManager | UTEXOWallet | RlnWalletManager;
+  instance: UTEXOWallet | RlnWalletManager;
   online: boolean;
 }
 

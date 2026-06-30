@@ -1,4 +1,4 @@
-import { deriveKeysFromMnemonic, WalletManager, UTEXOWallet, RlnWalletManager, initRlnWasm } from '@utexo/rgb-sdk-web';
+import { UTEXOWallet, RlnWalletManager, initRlnWasm } from '@utexo/rgb-sdk-web';
 import { proxyIndexerUrl } from './utils';
 import type { WalletInstance, WalletConfig } from '../store';
 
@@ -8,7 +8,7 @@ const ACTIVE_KEY = 'rgb_active_wallet_id';  // sessionStorage — per-tab
 interface SessionEntry {
   id: string;
   label: string;
-  type: 'manager' | 'utexo' | 'rln';
+  type: 'utexo' | 'rln';
   config: WalletConfig;
 }
 
@@ -95,40 +95,23 @@ export async function autoRestore(): Promise<RestoreResult> {
 async function restoreEntry(entry: SessionEntry): Promise<WalletInstance | null> {
   const { type, config } = entry;
 
-  if (type === 'manager') {
-    const keys = await deriveKeysFromMnemonic(config.network, config.mnemonic);
-    const m = await WalletManager.create({
-      mnemonic: config.mnemonic,
-      xpubVan: keys.accountXpubVanilla,
-      xpubCol: keys.accountXpubColored,
-      masterFingerprint: keys.masterFingerprint,
-      network: config.network,
-      indexerUrl: config.indexerUrl ? proxyIndexerUrl(config.indexerUrl) : undefined,
-      transportEndpoint: config.transportEndpoint || undefined,
-      reuseAddresses: config.reuseAddresses,
-    });
-    if (config.indexerUrl) {
-      try { await m.goOnline(proxyIndexerUrl(config.indexerUrl)); } catch {}
-    }
-    return {
-      id: entry.id,
-      label: entry.label,
-      type: 'manager',
-      config,
-      instance: m,
-      online: !!config.indexerUrl,
-    };
-  }
-
   if (type === 'utexo') {
-    const preset =
-      config.network === 'mainnet' || config.network === 'testnet'
-        ? config.network
-        : 'testnet';
-    const w = new UTEXOWallet(config.mnemonic, { network: preset as 'mainnet' | 'testnet' });
-    await w.initialize();
-    if (config.indexerUrl) {
-      try { await w.goOnline(proxyIndexerUrl(config.indexerUrl)); } catch {}
+    if (!config.password) {
+      console.warn('[UTEXO restore] skipping — no password in config');
+      return null; // RLN-backed UTEXOWallet needs the SDK password
+    }
+    await initRlnWasm();
+    const w = await UTEXOWallet.create({
+      mnemonic: config.mnemonic,
+      password: config.password,
+      network: config.network,
+      proxyUrl: config.proxyUrl || undefined,
+      transportEndpoint: config.transportEndpoint || undefined,
+      nodeRuntimeId: config.nodeRuntimeId || undefined,
+    });
+    const indexer = config.indexerUrl ? proxyIndexerUrl(config.indexerUrl) : undefined;
+    try { await w.goOnline(indexer as string); } catch (e) {
+      console.warn('[UTEXO restore] goOnline failed (non-fatal):', String(e));
     }
     return {
       id: entry.id,
@@ -136,7 +119,7 @@ async function restoreEntry(entry: SessionEntry): Promise<WalletInstance | null>
       type: 'utexo',
       config,
       instance: w,
-      online: !!config.indexerUrl,
+      online: true,
     };
   }
 

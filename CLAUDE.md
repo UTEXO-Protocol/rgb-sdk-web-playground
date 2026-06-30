@@ -18,22 +18,25 @@ Interactive React SPA that demos every function of the `@utexo/rgb-sdk-web` WASM
 
 ## Architecture
 
-**Startup flow**: `App.tsx` calls `initWasm()` (async WASM init), then `autoRestore()` to recover wallets from `sessionStorage`. The Zustand store in `src/store.ts` holds the live WASM wallet instances (`manager: WalletManager | null`, `utexo: UTEXOWallet | null`) plus an activity log. Wallet instances **must** live in Zustand (not React state) because WASM objects cannot be cloned/serialized.
+The SDK is **RLN-only** (the old rgb-lib-wasm `WalletManager` stack was removed). All wallets are backed by `rln-wasm-sdk`.
+
+**Startup flow**: `App.tsx` calls `initRlnWasm()` (async WASM init), then `autoRestore()` to recover wallets from `localStorage`. The Zustand store in `src/store.ts` holds live wallet instances (`type: 'utexo' | 'rln'`, instance `UTEXOWallet | RlnWalletManager`) plus an activity log. Instances **must** live in Zustand (not React state) — WASM objects cannot be cloned/serialized. Both wallet types restore via `*.create({ mnemonic, password, network, transportEndpoint?, proxyUrl?, nodeRuntimeId? })`, so the saved `WalletConfig` must include `password`.
 
 **Pages** (one route each in `App.tsx`):
 - `KeysPage` — `generateKeys`, `restoreKeys`, `deriveKeysFromMnemonic`, `bip39`
-- `WalletManagerPage` — full `WalletManager` lifecycle (create, go online, UTXO ops, BTC send)
-- `UtexoWalletPage` — `UTEXOWallet` (dual-layer wallet with optional transport endpoint)
-- `BitcoinPage` — BTC send (3-step PSBT), faucet funding, fee estimation
-- `RgbAssetsPage` — issue NIA/IFA assets, blind/witness receive invoices, send assets
-- `BackupPage` — file backup/restore, VSS cloud backup
+- `UtexoWalletPage` — **primary**: create + full `UTEXOWallet` surface (RGB on-chain + Lightning), backed by RLN
+- `BitcoinPage` — BTC send (3-step PSBT), faucet funding, fee estimation (operates on the active wallet)
+- `RgbAssetsPage` — issue NIA/IFA, blind/witness receive, send assets; batch-send section requires an RLN Wallet (`RlnWalletManager`)
+- `RlnWalletPage` — low-level `RlnWalletManager` + Lightning node binding (advanced)
+- `RlnFlowGuidePage` — guided two-party RGB-over-Lightning walkthrough
+- `UtexoBackupPage` (`/backup`) — file backup (`createBackup`/`getLastBackupBytes`/`restoreFromBackupBytes`) + VSS
 
 **Reusable components** worth knowing:
 - `StepFlow.tsx` — 3-step Begin → Sign → Broadcast UI; steps unlock sequentially; has an "Auto" button that runs all 3 at once
 - `OutputBox.tsx` — `<pre>` display with Copy button
 - `Field.tsx`, `Section.tsx`, `Btn.tsx` — form/layout primitives
 
-**Session persistence** (`src/lib/session.ts`): saves `{ type, mnemonic, network, transportEndpoint, indexerUrl }` to `sessionStorage['rgb_wallet_session']`. Cleared when browser session ends.
+**Session persistence** (`src/lib/session.ts`): saves wallet entries (incl. `WalletConfig` with `password`) to `localStorage['rgb_wallet_sessions']`; active id in `sessionStorage['rgb_active_wallet_id']`.
 
 ## Critical Vite Config Rules
 
@@ -45,7 +48,7 @@ Interactive React SPA that demos every function of the `@utexo/rgb-sdk-web` WASM
 
 `optimizeDeps.exclude` must list `@utexo/rgb-sdk-web` and sibling packages — Vite's pre-bundler breaks async WASM init if they're included.
 
-`server.fs.allow` must include sibling monorepo paths (`../rgb-sdk-web`, `../rgb-lib-wasm`, `../rgb-sdk-core`) so Vite can serve their WASM files.
+`server.fs.allow` must include sibling monorepo paths (`../rgb-sdk-web`, `../rgb-sdk-core`, `../../utexo/rgb-lightning-node/bindings/wasm-sdk/pkg`) so Vite can serve their WASM files.
 
 ## SDK Patterns
 

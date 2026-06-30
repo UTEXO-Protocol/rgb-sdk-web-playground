@@ -64,7 +64,6 @@ export default defineConfig({
       allow: [
         path.resolve(__dirname),
         path.resolve(__dirname, '../rgb-sdk-web'),
-        path.resolve(__dirname, '../rgb-lib-wasm'),
         path.resolve(__dirname, '../rgb-sdk-core'),
         path.resolve(__dirname, '../../utexo/rgb-lightning-node/bindings/wasm-sdk/pkg'),
       ],
@@ -72,7 +71,7 @@ export default defineConfig({
   },
   optimizeDeps: {
     // Don't pre-bundle — these contain WASM / local file: symlinks
-    exclude: ['@utexo/rgb-sdk-web', '@utexo/rgb-lib-wasm'],
+    exclude: ['@utexo/rgb-sdk-web'],
     // Force pre-bundle CJS deps pulled in by excluded packages so named exports work
     include: ['bitcoinjs-lib'],
   },

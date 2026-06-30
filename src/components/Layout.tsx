@@ -9,14 +9,12 @@ import { saveSessions, setUrlWallet } from '../lib/session';
 const navLinks = [
   { to: '/', label: 'Home' },
   { to: '/keys', label: 'Keys' },
-  { to: '/wallet', label: 'Wallet' },
+  { to: '/utexo-wallet', label: 'UTXO Wallet' },
   { to: '/bitcoin', label: 'Bitcoin' },
   { to: '/rgb-assets', label: 'RGB Assets' },
-  { to: '/utexo-wallet', label: 'UTXO Wallet' },
   { to: '/rln-wallet', label: 'RLN Wallet' },
   { to: '/rln-flow', label: 'RLN Flow' },
-  { to: '/backup/manager', label: 'Backup MGR' },
-  { to: '/backup/utexo', label: 'Backup UTXO' },
+  { to: '/backup', label: 'Backup' },
 ];
 
 const statusStyles: Record<string, string> = {
@@ -183,7 +181,7 @@ export function Layout({ children }: LayoutProps) {
                 ))}
               </select>
               <span className="text-xs text-[#484f58]">
-                {activeWallet?.type === 'manager' ? 'MGR' : activeWallet?.type === 'utexo' ? 'UTXO' : activeWallet?.type === 'rln' ? 'RLN' : ''}
+                {activeWallet?.type === 'utexo' ? 'UTXO' : activeWallet?.type === 'rln' ? 'RLN' : ''}
               </span>
               <button
                 onClick={handleRemoveActive}

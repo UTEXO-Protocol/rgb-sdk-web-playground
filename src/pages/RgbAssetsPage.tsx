@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import type { WalletManager } from '@utexo/rgb-sdk-web';
+import type { RlnWalletManager } from '@utexo/rgb-sdk-web';
 import { useStore } from '../store';
 import { Section } from '../components/Section';
 import { Field, inputCls, selectCls, textareaCls } from '../components/Field';
@@ -13,7 +13,7 @@ export function RgbAssetsPage() {
   const addLog = useStore((s) => s.addLog);
   const activeWallet = useActiveWallet();
   const wallet = activeWallet?.instance ?? null;
-  const isManager = activeWallet?.type === 'manager';
+  const isRlnManager = activeWallet?.type === 'rln';
 
   const [assetIdQuery, setAssetIdQuery] = useState('');
   const [niaTicker, setNiaTicker] = useState('DEMO');
@@ -329,11 +329,11 @@ export function RgbAssetsPage() {
     } catch (e) { setSignOut('Error: ' + e); addLog('verifyMessage failed: ' + e, 'err'); }
   }
 
-  // Batch Send (WalletManager only)
-  const manager = isManager ? activeWallet!.instance as WalletManager : null;
+  // Batch Send (RlnWalletManager only — exposes sendBeginBatch/sendBatch)
+  const manager = isRlnManager ? (activeWallet!.instance as RlnWalletManager) : null;
 
   async function handleBatchBegin() {
-    if (!manager) { setBatchOut('WalletManager required for batch send'); return; }
+    if (!manager) { setBatchOut('RlnWalletManager required for batch send'); return; }
     addLog('Batch send begin...', 'info');
     try {
       const params = { recipientMap: JSON.parse(batchRecipientMap) as any, feeRate: parseFloat(batchFeeRate) || 2, donation: batchDonation === 'true' };
@@ -364,7 +364,7 @@ export function RgbAssetsPage() {
   }
 
   async function handleBatchAuto() {
-    if (!manager) { setBatchOut('WalletManager required for batch send'); return; }
+    if (!manager) { setBatchOut('RlnWalletManager required for batch send'); return; }
     addLog('Batch send (auto)...', 'info');
     try {
       const params = { recipientMap: JSON.parse(batchRecipientMap) as any, feeRate: parseFloat(batchFeeRate) || 2, donation: batchDonation === 'true' };
@@ -533,10 +533,10 @@ export function RgbAssetsPage() {
         <OutputBox value={sendOut} />
       </Section>
 
-      {/* 7. Batch Send (WalletManager only) */}
-      <Section title="7. Batch Send RGB Assets (WalletManager only)" hint="sendBeginBatch / sendBatch — send to multiple recipients in one transaction.">
-        {!isManager && active && (
-          <p className="text-[#d29922] text-sm mb-4">Batch send requires a WalletManager wallet. Switch to one in the header.</p>
+      {/* 7. Batch Send (RlnWalletManager only) */}
+      <Section title="7. Batch Send RGB Assets (RlnWalletManager only)" hint="sendBeginBatch / sendBatch — send to multiple recipients in one transaction.">
+        {!isRlnManager && active && (
+          <p className="text-[#d29922] text-sm mb-4">Batch send requires an RLN Wallet (RlnWalletManager). Switch to one in the header.</p>
         )}
         <Field label="Recipient map (JSON)">
           <textarea value={batchRecipientMap} onChange={(e) => setBatchRecipientMap(e.target.value)} className={textareaCls} rows={5}
@@ -560,7 +560,7 @@ export function RgbAssetsPage() {
             { label: '3. Broadcast', variant: 'accent', onClick: handleBatchEnd },
           ]}
           auto={{ label: 'Batch Send (auto)', onClick: handleBatchAuto }}
-          disabled={!isManager}
+          disabled={!isRlnManager}
         />
         <OutputBox value={batchOut} />
       </Section>

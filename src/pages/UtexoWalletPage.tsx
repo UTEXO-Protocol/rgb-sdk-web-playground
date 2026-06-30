@@ -36,6 +36,10 @@ export function UtexoWalletPage() {
   const [creating, setCreating] = useState(false);
   const [createOut, setCreateOut] = useState('');
   const [showMnemonic, setShowMnemonic] = useState(false);
+  // RLN-backed UTEXOWallet requires an SDK password; transportEndpoint enables
+  // the Lightning node + node-side asset issuance.
+  const [password, setPassword] = useState('demo-password');
+  const [transportEndpoint, setTransportEndpoint] = useState('');
 
   // ── Go Online ─────────────────────────────────────────────────────────────
   const [indexerUrl, setIndexerUrl] = useState(() => getIndexerUrl('testnet'));
@@ -173,18 +177,23 @@ export function UtexoWalletPage() {
     try {
       const walletLabel = label.trim() || 'UTEXOWallet (' + network + ')';
       addLog('Creating UTEXOWallet (' + network + ')...', 'info');
-      const inst = new UTEXOWallet(mnemonic.trim(), { network });
-      addLog('Initializing...', 'info');
-      await inst.initialize();
+      const inst = await UTEXOWallet.create({
+        mnemonic: mnemonic.trim(),
+        password,
+        network,
+        transportEndpoint: transportEndpoint.trim() || undefined,
+      });
 
+      const xpubs = inst.getXpub();
       const config: WalletConfig = {
         network,
         indexerUrl,
-        transportEndpoint: '',
+        transportEndpoint: transportEndpoint.trim(),
         masterFingerprint: '',
-        xpubVan: '',
-        xpubCol: '',
+        xpubVan: xpubs.xpubVan,
+        xpubCol: xpubs.xpubCol,
         mnemonic: mnemonic.trim(),
+        password,
       };
 
       const w: WalletInstance = {
@@ -533,18 +542,18 @@ export function UtexoWalletPage() {
   async function handleGetPubKeys() {
     if (!utexo) { setPubKeysOut('No UTEXOWallet active'); return; }
     try {
-      const result = await utexo.getPubKeys();
+      const result = utexo.getXpub();
       setPubKeysOut(json(result));
-      addLog('Public keys retrieved', 'ok');
+      addLog('Account xpubs retrieved', 'ok');
     } catch (e) { setPubKeysOut('Error: ' + e); }
   }
 
   async function handleDerivePublicKeys() {
     if (!utexo) { setPubKeysOut('No UTEXOWallet active'); return; }
     try {
-      const result = await utexo.derivePublicKeys(deriveNetwork as never);
+      const result = { network: utexo.getNetwork(), ...utexo.getXpub() };
       setPubKeysOut(json(result));
-      addLog('Keys derived for ' + deriveNetwork, 'ok');
+      addLog('Keys read', 'ok');
     } catch (e) { setPubKeysOut('Error: ' + e); }
   }
 
@@ -586,7 +595,7 @@ export function UtexoWalletPage() {
   async function handleOnchainSendEnd() {
     if (!utexo || !onchainSignedPsbt) { setOnchainOut('Sign PSBT first'); return; }
     addLog('onchainSendEnd...', 'info');
-    const result = await utexo.onchainSendEnd({ signedPsbt: onchainSignedPsbt, invoice: onchainInvoice.trim() });
+    const result = await utexo.onchainSendEnd({ signedPsbt: onchainSignedPsbt });
     setOnchainPendingPsbt(null); setOnchainSignedPsbt(null);
     setOnchainOut('Result:\n' + json(result));
     addLog('Onchain send complete', 'ok');
@@ -656,7 +665,7 @@ export function UtexoWalletPage() {
   async function handlePayLnEnd() {
     if (!utexo || !lnSignedPsbt) { setLnOut('Sign PSBT first'); return; }
     addLog('payLightningInvoiceEnd...', 'info');
-    const result = await utexo.payLightningInvoiceEnd({ signedPsbt: lnSignedPsbt, lnInvoice: lnInvoice.trim() });
+    const result = await utexo.payLightningInvoiceEnd({ signedPsbt: lnSignedPsbt });
     setLnPendingPsbt(null); setLnSignedPsbt(null);
     setLnOut('Result:\n' + json(result));
     addLog('LN pay complete', 'ok');
@@ -694,8 +703,13 @@ export function UtexoWalletPage() {
     if (!validateAssetId.trim() || !validateAmount) { setValidateOut('Enter asset ID and amount'); return; }
     try {
       addLog('validateBalance...', 'info');
-      await utexo.validateBalance(validateAssetId.trim(), parseInt(validateAmount));
-      setValidateOut('Balance valid — spendable >= ' + validateAmount);
+      const bal = await utexo.getAssetBalance(validateAssetId.trim());
+      const spendable = bal.spendable ?? 0;
+      const need = parseInt(validateAmount);
+      if (spendable < need) {
+        throw new Error('insufficient spendable balance: ' + spendable + ' < ' + need);
+      }
+      setValidateOut('Balance valid — spendable ' + spendable + ' >= ' + validateAmount);
       addLog('Balance valid', 'ok');
     } catch (e) {
       setValidateOut('Validation failed: ' + e);
@@ -776,7 +790,7 @@ export function UtexoWalletPage() {
       </p>
 
       {/* ── Create Wallet ─────────────────────────────────────────────────── */}
-      <Section title="1. Create UTEXOWallet" hint="new UTEXOWallet(mnemonic, { network }) + initialize()">
+      <Section title="1. Create UTEXOWallet" hint="UTEXOWallet.create({ mnemonic, password, network, transportEndpoint })">
         <div className="flex gap-4 mb-4 flex-wrap">
           <Field label="Network">
             <select value={network} onChange={(e) => setNetwork(e.target.value as UtexoNetwork)} className={selectCls}>
@@ -786,7 +800,13 @@ export function UtexoWalletPage() {
           <Field label="Label (optional)">
             <input value={label} onChange={(e) => setLabel(e.target.value)} className={inputCls} placeholder='e.g. "Alice"' />
           </Field>
+          <Field label="SDK Password">
+            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} className={inputCls} placeholder="RLN SDK password" />
+          </Field>
         </div>
+        <Field label="Transport Endpoint (optional — enables Lightning + NIA/CFA issuance)">
+          <input value={transportEndpoint} onChange={(e) => setTransportEndpoint(e.target.value)} className={inputCls} placeholder="e.g. http://127.0.0.1:3001/rgb/json-rpc" />
+        </Field>
         <Field label="Mnemonic">
           <textarea value={mnemonic} onChange={(e) => setMnemonic(e.target.value)} className={textareaCls} rows={2} placeholder="Enter 12/24-word mnemonic or click Generate" />
         </Field>
