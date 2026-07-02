@@ -14,6 +14,7 @@ const navLinks = [
   { to: '/rgb-assets', label: 'RGB Assets' },
   { to: '/rln-wallet', label: 'RLN Wallet' },
   { to: '/rln-flow', label: 'RLN Flow' },
+  { to: '/lsp-apay', label: 'LSP & APay' },
   { to: '/backup', label: 'Backup' },
 ];
 

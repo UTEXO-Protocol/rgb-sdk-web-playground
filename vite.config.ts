@@ -58,6 +58,13 @@ export default defineConfig({
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/esplora/, ''),
       },
+      // utexo-lsp HTTP API (LSP/APay flows) — same-origin to avoid CORS.
+      // VITE_LSP_BASE_URL="/lsp" (written by scripts/start-lsp-web.sh).
+      '/lsp': {
+        target: 'http://127.0.0.1:8080',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/lsp/, ''),
+      },
     },
     fs: {
       // Allow serving WASM files from sibling local packages

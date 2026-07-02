@@ -12,6 +12,7 @@ import { UtexoBackupPage } from './pages/UtexoBackupPage';
 import { UtexoWalletPage } from './pages/UtexoWalletPage';
 import { RlnWalletPage } from './pages/RlnWalletPage';
 import { RlnFlowGuidePage } from './pages/RlnFlowGuidePage';
+import { LspApayPage } from './pages/LspApayPage';
 
 function App() {
   const setSdkStatus = useStore((s) => s.setSdkStatus);
@@ -71,6 +72,7 @@ function App() {
           <Route path="/utexo-wallet" element={<UtexoWalletPage />} />
           <Route path="/rln-wallet" element={<RlnWalletPage />} />
           <Route path="/rln-flow" element={<RlnFlowGuidePage />} />
+          <Route path="/lsp-apay" element={<LspApayPage />} />
         </Routes>
       </Layout>
     </BrowserRouter>

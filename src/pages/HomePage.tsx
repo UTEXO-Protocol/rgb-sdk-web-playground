@@ -34,6 +34,11 @@ const cards = [
     desc: 'Guided two-party RGB-over-Lightning flow walkthrough',
   },
   {
+    to: '/lsp-apay',
+    title: 'LSP & APay',
+    desc: 'utexo-lsp bridge flows (receive/send asset, pay Lightning Address) + async payments',
+  },
+  {
     to: '/backup',
     title: 'Backup & Restore',
     desc: 'Encrypted file backup (createBackup / restoreFromBackupBytes) and VSS cloud backup',
