@@ -180,8 +180,9 @@ rgb-sdk-web-demo/src/
     InfoCard.tsx         # LN address / channel / HODL invoice / payment / balance cards
     LogPane.tsx          # timestamped → req / ← res console (tail 500)
     ApayCartCheckout.tsx # guided UI: env badge, cart card, role Run buttons, done card
-  pages/LspApayPage.tsx  # ApayCartCheckout on top; existing sections 1–5 + RegtestLspFlow
-                         # moved into a collapsed <details> “LSP & APay API Reference”
+  pages/LspApayPage.tsx  # RegtestLspFlow stays on top AS-IS (user decision 2026-07-03:
+                         # keep the proven flow); ApayCartCheckout inserted right below
+                         # it; existing API sections 1–5 remain at the bottom unchanged
   pages/HomePage.tsx     # card copy → “APay Cart Checkout — guided merchant+buyer flow”
 ```
 
@@ -220,12 +221,20 @@ Env (all already written by `start-lsp-web.sh`): `VITE_LSP_REGTEST_ASSET_ID`,
 1. ✅ Effectively covered by step 0's top-up leg (`receiveAsset` round trip). Still
    optionally smoke `enableLightningAddress` via the `/lsp-apay` API section before
    wiring it into the hook.
-   **← NEXT SESSION STARTS HERE (step 2).**
-2. `config.ts` + `useApayFlow.ts` (merchant half, then buyer half).
-3. UI components + `ApayCartCheckout.tsx`.
-4. Recompose `LspApayPage.tsx` (guided flow on top, API reference collapsed below);
-   HomePage card copy.
-5. `npm run build` + full manual two-window run against `./scripts/start-lsp-web.sh`.
+2. ✅ **DONE (2026-07-03)** — `src/components/apay/config.ts` + `useApayFlow.ts`
+   (role-split: merchant = setup → register → keepalive/watch loop; buyer = setup →
+   a_topup → waitForOutboundLiquidity (own miner beat — the SDK method has no
+   onEachPoll) → payAddress → settle poll). Balance verification via `listChannels`
+   `assetLocalAmount` delta per §2; verdict broadcast incl. the soft-fail path.
+3. ✅ **DONE (2026-07-03)** — `PhaseRow.tsx`, `InfoCard.tsx`, `LogPane.tsx`,
+   `ApayCartCheckout.tsx`.
+4. ✅ **DONE (2026-07-03)** — `ApayCartCheckout` inserted below `RegtestLspFlow` in
+   `LspApayPage.tsx` (current flow preserved as-is); HomePage card copy updated.
+   `npm run build` green.
+   **← NEXT SESSION STARTS HERE (step 5).**
+5. Full manual two-window run against `./scripts/start-lsp-web.sh` (restart Vite
+   after stack restart). First-ever exercise of `enableLightningAddress` /
+   `payAddress` in wasm — expect iteration here (custom-msg 37915 over gateway WS).
 
 ## 6. Risks / open questions
 

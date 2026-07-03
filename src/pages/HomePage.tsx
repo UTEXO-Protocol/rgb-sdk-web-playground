@@ -36,7 +36,7 @@ const cards = [
   {
     to: '/lsp-apay',
     title: 'LSP & APay',
-    desc: 'utexo-lsp bridge flows (receive/send asset, pay Lightning Address) + async payments',
+    desc: 'APay Cart Checkout — guided merchant+buyer flow — plus utexo-lsp bridge flows and the API reference',
   },
   {
     to: '/backup',

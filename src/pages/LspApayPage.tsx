@@ -8,6 +8,7 @@ import { OutputBox } from '../components/OutputBox';
 import { useActiveWallet } from '../hooks/useActiveWallet';
 import { json } from '../lib/utils';
 import { RegtestLspFlow } from '../components/RegtestLspFlow';
+import { ApayCartCheckout } from '../components/apay/ApayCartCheckout';
 
 export function LspApayPage() {
   const addLog = useStore((s) => s.addLog);
@@ -278,6 +279,8 @@ export function LspApayPage() {
       </p>
 
       <RegtestLspFlow />
+
+      <ApayCartCheckout />
 
       <Section
         title="1. Create + Connect"
