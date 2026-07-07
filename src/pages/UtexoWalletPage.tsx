@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { generateKeys, UTEXOWallet } from '@utexo/rgb-sdk-web';
+import type { UtexoLsp, LspPeer } from '@utexo/rgb-sdk-web';
 import { useStore } from '../store';
 import type { WalletInstance, WalletConfig } from '../store';
 import { Section } from '../components/Section';
@@ -10,6 +11,7 @@ import { StepFlow } from '../components/StepFlow';
 import { useActiveWallet } from '../hooks/useActiveWallet';
 import { json, getIndexerUrl, proxyIndexerUrl, parseAmounts, FAUCET_BASE_URL, FAUCET_TOKEN, UTEXO_FAUCET_URL, faucetSendBtc, gatewayRegtestFund } from '../lib/utils';
 import { saveSessions, setUrlWallet } from '../lib/session';
+import { CFG as REGTEST_LSP_CFG } from '../components/apay/config';
 
 let walletCounter = 0;
 function nextId() {
@@ -20,6 +22,62 @@ function nextId() {
 // URL defaults in the SDK — indexer, transport, LN gateway; see DEFAULT_RLN_URLS).
 const UTEXO_NETWORKS = ['regtest', 'utexo', 'signet', 'testnet', 'mainnet'] as const;
 type UtexoNetwork = typeof UTEXO_NETWORKS[number];
+
+// Side navigation — ids must match the Section id="sec-…" anchors below.
+const SECTION_NAV = [
+  {
+    group: 'Onchain',
+    items: [
+      { id: 'create', label: '1 · Create wallet' },
+      { id: 'online', label: '2 · goOnline' },
+      { id: 'info', label: '3 · Wallet info' },
+      { id: 'fund', label: '4 · Fund wallet' },
+      { id: 'send-btc', label: '5 · Send BTC' },
+      { id: 'utxos', label: '6 · Create UTXOs' },
+      { id: 'sync', label: '7 · Sync' },
+      { id: 'nia', label: '8 · Issue NIA' },
+      { id: 'ifa', label: '9 · Issue IFA' },
+      { id: 'assets', label: '10 · List assets' },
+      { id: 'receive', label: '11 · Receive RGB' },
+      { id: 'send-rgb', label: '12 · Send RGB' },
+      { id: 'transfers', label: '13 · Transfers' },
+      { id: 'keys', label: '14 · Keys' },
+      { id: 'validate', label: '15 · Validate balance' },
+      { id: 'crypto', label: '16 · Decode / Sign' },
+    ],
+  },
+  {
+    group: 'Lightning',
+    items: [
+      { id: 'ln-peers', label: '17 · Node & peers' },
+      { id: 'ln-channels', label: '18 · Channels' },
+      { id: 'ln-invoice', label: '19 · Create invoice' },
+      { id: 'ln-pay', label: '20 · Pay invoice' },
+      { id: 'ln-status', label: '21 · Status & decode' },
+    ],
+  },
+  {
+    group: 'LSP',
+    items: [
+      { id: 'lsp-connect', label: '22 · Create + Connect' },
+      { id: 'lsp-receive', label: '23 · Receive asset' },
+      { id: 'lsp-send', label: '24 · Send asset' },
+      { id: 'lsp-pay', label: '25 · Pay LN address' },
+      { id: 'lsp-apay', label: '26 · APay' },
+    ],
+  },
+];
+
+const ALL_NAV_ITEMS = SECTION_NAV.flatMap((g) => g.items);
+
+function GroupHeading({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="flex items-center gap-3 mb-4">
+      <h2 className="text-[#c9d1d9] text-sm font-bold uppercase tracking-widest whitespace-nowrap">{children}</h2>
+      <div className="flex-1 h-px bg-[#30363d]" />
+    </div>
+  );
+}
 
 export function UtexoWalletPage() {
   const addLog = useStore((s) => s.addLog);
@@ -123,6 +181,8 @@ export function UtexoWalletPage() {
   const [lnSendAmount, setLnSendAmount] = useState('');
   const [lnPaymentHash, setLnPaymentHash] = useState('');
   const [lnOut, setLnOut] = useState('');
+  const [lnPayOut, setLnPayOut] = useState('');
+  const [lnStatusOut, setLnStatusOut] = useState('');
 
   // ── Validate balance ──────────────────────────────────────────────────────
   const [validateAssetId, setValidateAssetId] = useState('');
@@ -144,6 +204,31 @@ export function UtexoWalletPage() {
   useEffect(() => {
     setIndexerUrl(getIndexerUrl(network));
   }, [network]);
+
+  // ── Side navigation ───────────────────────────────────────────────────────
+  const [activeSection, setActiveSection] = useState('create');
+
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const visible = entries
+          .filter((e) => e.isIntersecting)
+          .sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top);
+        if (visible.length > 0) setActiveSection(visible[0].target.id.replace('sec-', ''));
+      },
+      { rootMargin: '0px 0px -60% 0px' }
+    );
+    for (const s of ALL_NAV_ITEMS) {
+      const el = document.getElementById('sec-' + s.id);
+      if (el) observer.observe(el);
+    }
+    return () => observer.disconnect();
+  }, []);
+
+  function scrollToSection(id: string) {
+    document.getElementById('sec-' + id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    setActiveSection(id);
+  }
 
   const activeUtexoNetwork = activeWallet?.type === 'utexo' ? activeWallet.config.network : null;
   const fundSupported =
@@ -559,31 +644,130 @@ export function UtexoWalletPage() {
   }
 
   async function handlePayLn() {
-    if (!utexo) { setLnOut('No UTEXOWallet active'); return; }
-    if (!lnInvoice.trim()) { setLnOut('Enter LN invoice'); return; }
+    if (!utexo) { setLnPayOut('No UTEXOWallet active'); return; }
+    if (!lnInvoice.trim()) { setLnPayOut('Enter LN invoice'); return; }
     try {
       addLog('payLightningInvoice...', 'info');
       const result = await utexo.payLightningInvoice({ lnInvoice: lnInvoice.trim(), assetId: lnSendAssetId.trim() || undefined, assetAmount: lnSendAmount ? parseInt(lnSendAmount) : undefined });
-      setLnOut('Result:\n' + json(result));
+      setLnPayOut('Result:\n' + json(result));
       if (result?.txid) setLnPaymentHash(result.txid as string);
       addLog('LN pay complete', 'ok');
-    } catch (e) { setLnOut('Error: ' + e); addLog('LN pay failed: ' + e, 'err'); }
+    } catch (e) { setLnPayOut('Error: ' + e); addLog('LN pay failed: ' + e, 'err'); }
   }
 
   async function handleGetLnSendStatus() {
-    if (!utexo || !lnPaymentHash.trim()) { setLnOut('Enter payment hash (returned as txid by payLightningInvoice)'); return; }
+    if (!utexo || !lnPaymentHash.trim()) { setLnStatusOut('Enter payment hash (returned as txid by payLightningInvoice)'); return; }
     try {
       const result = await utexo.getLightningSendRequest(lnPaymentHash.trim());
-      setLnOut('Status: ' + json(result));
-    } catch (e) { setLnOut('Error: ' + e); }
+      setLnStatusOut('Status: ' + json(result));
+    } catch (e) { setLnStatusOut('Error: ' + e); }
   }
 
   async function handleGetLnReceiveStatus() {
-    if (!utexo || !lnInvoice.trim()) { setLnOut('Enter LN invoice'); return; }
+    if (!utexo || !lnInvoice.trim()) { setLnStatusOut('Enter LN invoice'); return; }
     try {
       const result = await utexo.getLightningReceiveRequest(lnInvoice.trim());
-      setLnOut('Status: ' + json(result));
-    } catch (e) { setLnOut('Error: ' + e); }
+      setLnStatusOut('Status: ' + json(result));
+    } catch (e) { setLnStatusOut('Error: ' + e); }
+  }
+
+  async function handleDecodeLnInvoice() {
+    if (!utexo) { setLnStatusOut('No UTEXOWallet active'); return; }
+    if (!lnInvoice.trim()) { setLnStatusOut('Enter LN invoice'); return; }
+    try {
+      const result = await utexo.decodeLnInvoice(lnInvoice.trim());
+      setLnStatusOut(json(result));
+      addLog('LN invoice decoded', 'ok');
+    } catch (e) { setLnStatusOut('Error: ' + e); }
+  }
+
+  // ── Lightning node / peers / channels ─────────────────────────────────────
+  const [lnPeerAddr, setLnPeerAddr] = useState('');
+  const [lnPeerPubkey, setLnPeerPubkey] = useState('');
+  const [lnPeersOut, setLnPeersOut] = useState('');
+
+  const [chanPeerPubkey, setChanPeerPubkey] = useState('');
+  const [chanCapacity, setChanCapacity] = useState('100000');
+  const [chanPublic, setChanPublic] = useState('true');
+  const [chanAssetId, setChanAssetId] = useState('');
+  const [chanAssetAmount, setChanAssetAmount] = useState('');
+  const [closeChannelId, setCloseChannelId] = useState('');
+  const [closeForce, setCloseForce] = useState('false');
+  const [chanOut, setChanOut] = useState('');
+
+  async function handleGetNodeInfo() {
+    if (!utexo) { setLnPeersOut('No UTEXOWallet active'); return; }
+    try {
+      const info = await utexo.getNodeInfo();
+      setLnPeersOut(json(info));
+      addLog('nodeInfo retrieved', 'ok');
+    } catch (e) { setLnPeersOut('Error: ' + e); }
+  }
+
+  async function handleListPeers() {
+    if (!utexo) { setLnPeersOut('No UTEXOWallet active'); return; }
+    try {
+      const peers = await utexo.listPeers();
+      setLnPeersOut(json(peers));
+      addLog('Peers: ' + peers.length, 'ok');
+    } catch (e) { setLnPeersOut('Error: ' + e); }
+  }
+
+  async function handleConnectPeer() {
+    if (!utexo) { setLnPeersOut('No UTEXOWallet active'); return; }
+    if (!lnPeerAddr.trim() || !lnPeerPubkey.trim()) { setLnPeersOut('Enter peer address and pubkey'); return; }
+    try {
+      addLog('connectPeer...', 'info');
+      await utexo.connectPeer(lnPeerAddr.trim(), lnPeerPubkey.trim());
+      setLnPeersOut('Connected to ' + lnPeerPubkey.trim());
+      addLog('connectPeer done', 'ok');
+    } catch (e) { setLnPeersOut('Error: ' + e); addLog('connectPeer failed: ' + e, 'err'); }
+  }
+
+  async function handleDisconnectPeer() {
+    if (!utexo) { setLnPeersOut('No UTEXOWallet active'); return; }
+    if (!lnPeerPubkey.trim()) { setLnPeersOut('Enter peer pubkey'); return; }
+    try {
+      await utexo.disconnectPeer(lnPeerPubkey.trim());
+      setLnPeersOut('Disconnected from ' + lnPeerPubkey.trim());
+      addLog('disconnectPeer done', 'ok');
+    } catch (e) { setLnPeersOut('Error: ' + e); }
+  }
+
+  async function handleOpenChannel() {
+    if (!utexo) { setChanOut('No UTEXOWallet active'); return; }
+    if (!chanPeerPubkey.trim()) { setChanOut('Enter peer pubkey'); return; }
+    try {
+      addLog('openChannel...', 'info');
+      const tempChannelId = await utexo.openChannel({
+        peerPubkey: chanPeerPubkey.trim(),
+        capacitySat: BigInt(chanCapacity || '0'),
+        isPublic: chanPublic === 'true',
+        assetId: chanAssetId.trim() || undefined,
+        assetLocalAmount: chanAssetAmount ? BigInt(chanAssetAmount) : undefined,
+      });
+      setChanOut('Channel opening. tempChannelId: ' + tempChannelId);
+      addLog('openChannel done', 'ok');
+    } catch (e) { setChanOut('Error: ' + e); addLog('openChannel failed: ' + e, 'err'); }
+  }
+
+  async function handleListChannels() {
+    if (!utexo) { setChanOut('No UTEXOWallet active'); return; }
+    try {
+      const channels = await utexo.listChannels();
+      setChanOut(json(channels));
+      addLog('Channels: ' + channels.length, 'ok');
+    } catch (e) { setChanOut('Error: ' + e); }
+  }
+
+  async function handleCloseChannel() {
+    if (!utexo) { setChanOut('No UTEXOWallet active'); return; }
+    if (!closeChannelId.trim()) { setChanOut('Enter channel ID'); return; }
+    try {
+      utexo.closeChannel(closeChannelId.trim(), undefined, closeForce === 'true');
+      setChanOut('Close requested for channel: ' + closeChannelId.trim());
+      addLog('closeChannel requested', 'ok');
+    } catch (e) { setChanOut('Error: ' + e); }
   }
 
   // ── Validate Balance ──────────────────────────────────────────────────────
@@ -668,16 +852,284 @@ export function UtexoWalletPage() {
     } catch (e) { setCryptoOut('Error: ' + e); }
   }
 
+  // ── LSP (utexo-lsp composed flows — mirrors the LSP & APay page) ──────────
+  const [lsp, setLsp] = useState<UtexoLsp | null>(null);
+  const [lspBaseUrl, setLspBaseUrl] = useState('');
+  const [lspPeerPubkey, setLspPeerPubkey] = useState('');
+  const [lspPeerHost, setLspPeerHost] = useState('');
+  const [lspPeerPort, setLspPeerPort] = useState('9735');
+  const [lspBearerToken, setLspBearerToken] = useState('');
+  const [lspConnectOut, setLspConnectOut] = useState('');
+
+  const [lspRecvAssetId, setLspRecvAssetId] = useState('');
+  const [lspRecvSats, setLspRecvSats] = useState('3000');
+  const [lspRecvRgb, setLspRecvRgb] = useState('100');
+  const [lspRecvLnInvoice, setLspRecvLnInvoice] = useState('');
+  const [lspRecvOut, setLspRecvOut] = useState('');
+
+  const [lspSendRgbInvoice, setLspSendRgbInvoice] = useState('');
+  const [lspSendOut, setLspSendOut] = useState('');
+
+  const [payAddress, setPayAddress] = useState('');
+  const [payAmtMsat, setPayAmtMsat] = useState('1000');
+  const [payAssetId, setPayAssetId] = useState('');
+  const [payAssetAmount, setPayAssetAmount] = useState('');
+  const [payOut, setPayOut] = useState('');
+
+  const [apayHostNodeId, setApayHostNodeId] = useState('');
+  const [apayUsername, setApayUsername] = useState('');
+  const [apayDomain, setApayDomain] = useState('');
+  const [apayOut, setApayOut] = useState('');
+
+  // Prefill the LSP peer fields with the local regtest stack config (same
+  // values the APay flow uses) whenever the active wallet is regtest.
+  useEffect(() => {
+    if (activeUtexoNetwork !== 'regtest') return;
+    setLspBaseUrl((v) => v || REGTEST_LSP_CFG.lspBaseUrl);
+    setLspPeerPubkey((v) => v || REGTEST_LSP_CFG.lspPubkey);
+    setLspPeerHost((v) => v || '127.0.0.1');
+    setLspPeerPort(String(REGTEST_LSP_CFG.lspPort));
+    setLspRecvAssetId((v) => v || REGTEST_LSP_CFG.assetId);
+  }, [activeUtexoNetwork]);
+
+  function requireLsp(set: (s: string) => void): UtexoLsp | null {
+    if (!lsp) {
+      set('Create / connect to the LSP first (section 22).');
+      return null;
+    }
+    return lsp;
+  }
+
+  async function handleCreateLsp() {
+    if (!utexo) return setLspConnectOut('No UTEXOWallet active');
+    try {
+      addLog('Creating UtexoLsp...', 'info');
+      let instance: UtexoLsp;
+      if (lspPeerPubkey.trim() && lspPeerHost.trim()) {
+        const peer: LspPeer = {
+          baseUrl: lspBaseUrl.trim(),
+          peerPubkey: lspPeerPubkey.trim(),
+          peerHost: lspPeerHost.trim(),
+          peerPort: parseInt(lspPeerPort) || 9735,
+          bearerToken: lspBearerToken.trim() || undefined,
+        };
+        instance = await utexo.createLsp(peer);
+      } else {
+        // Auto-discover the peer from the wallet's configured lspBaseUrl via GET /get_info.
+        instance = await utexo.createLsp(undefined, parseInt(lspPeerPort) || 9735);
+      }
+      setLsp(instance);
+      setLspConnectOut('UtexoLsp ready\npeer: ' + json(instance.peer));
+      addLog('UtexoLsp created', 'ok');
+    } catch (e) {
+      setLspConnectOut('Error: ' + e);
+      addLog('createLsp failed: ' + e, 'err');
+    }
+  }
+
+  async function handleLspConnect() {
+    const l = requireLsp(setLspConnectOut);
+    if (!l) return;
+    try {
+      addLog('Connecting to LSP peer...', 'info');
+      await l.connect();
+      const info = await l.http.getInfo();
+      setLspConnectOut('Connected.\nLSP get_info:\n' + json(info));
+      addLog('Connected to LSP', 'ok');
+    } catch (e) {
+      setLspConnectOut('Error: ' + e);
+      addLog('connect failed: ' + e, 'err');
+    }
+  }
+
+  async function handleLspReceiveAsset() {
+    const l = requireLsp(setLspRecvOut);
+    if (!l) return;
+    if (!lspRecvAssetId.trim()) return setLspRecvOut('Enter asset ID');
+    try {
+      addLog('LSP receiveAsset...', 'info');
+      const res = await l.receiveAsset({
+        assetId: lspRecvAssetId.trim(),
+        amountSats: parseInt(lspRecvSats) || 0,
+        amountRgb: parseInt(lspRecvRgb) || 0,
+      });
+      setLspRecvLnInvoice(res.lnInvoice);
+      setLspRecvOut(json(res));
+      addLog('receiveAsset ok — share rgbInvoice with the sender', 'ok');
+    } catch (e) {
+      setLspRecvOut('Error: ' + e);
+      addLog('receiveAsset failed: ' + e, 'err');
+    }
+  }
+
+  async function handleLspAwaitSettlement() {
+    const l = requireLsp(setLspRecvOut);
+    if (!l) return;
+    if (!lspRecvLnInvoice.trim()) return setLspRecvOut('No LN invoice — run receiveAsset first');
+    try {
+      addLog('Awaiting receive settlement...', 'info');
+      const outcome = await l.awaitReceiveSettlement(lspRecvLnInvoice.trim(), {
+        onProgress: (s) => addLog('settlement: ' + s, 'info'),
+      });
+      setLspRecvOut('Settlement outcome: ' + outcome);
+      addLog('awaitReceiveSettlement: ' + outcome, outcome === 'settled' ? 'ok' : 'warn');
+    } catch (e) {
+      setLspRecvOut('Error: ' + e);
+      addLog('awaitReceiveSettlement failed: ' + e, 'err');
+    }
+  }
+
+  async function handleLspSendAsset() {
+    const l = requireLsp(setLspSendOut);
+    if (!l) return;
+    if (!lspSendRgbInvoice.trim()) return setLspSendOut('Enter the recipient RGB invoice');
+    try {
+      addLog('LSP sendAsset...', 'info');
+      const res = await l.sendAsset({ rgbInvoice: lspSendRgbInvoice.trim() });
+      setLspSendOut(json(res));
+      addLog('sendAsset ok', 'ok');
+    } catch (e) {
+      setLspSendOut('Error: ' + e);
+      addLog('sendAsset failed: ' + e, 'err');
+    }
+  }
+
+  async function handlePayAddress() {
+    const l = requireLsp(setPayOut);
+    if (!l) return;
+    if (!payAddress.trim()) return setPayOut('Enter a Lightning Address');
+    try {
+      addLog('Paying Lightning Address ' + payAddress + '...', 'info');
+      const asset = payAssetId.trim()
+        ? { assetId: payAssetId.trim(), assetAmount: parseInt(payAssetAmount) || 0 }
+        : undefined;
+      const res = await l.payAddress({
+        address: payAddress.trim(),
+        amtMsat: parseInt(payAmtMsat) || 0,
+        asset,
+      });
+      setPayOut(json(res));
+      addLog('payAddress ok', 'ok');
+    } catch (e) {
+      setPayOut('Error: ' + e);
+      addLog('payAddress failed: ' + e, 'err');
+    }
+  }
+
+  async function handleEnableLightningAddress() {
+    const l = requireLsp(setApayOut);
+    if (!l) return;
+    try {
+      addLog('enableLightningAddress (APay)...', 'info');
+      const info = await l.enableLightningAddress();
+      setApayUsername(info.username);
+      setApayDomain(info.domain);
+      setApayOut(json(info));
+      addLog('Lightning Address enabled: ' + info.address, 'ok');
+    } catch (e) {
+      setApayOut('Error: ' + e);
+      addLog('enableLightningAddress failed: ' + e, 'err');
+    }
+  }
+
+  async function handleRefillHashPool() {
+    const l = requireLsp(setApayOut);
+    if (!l) return;
+    try {
+      addLog('refillHashPool...', 'info');
+      const res = await l.refillHashPool();
+      setApayOut(json(res));
+      addLog('refillHashPool ok — unused hashes: ' + res.unusedHashes, 'ok');
+    } catch (e) {
+      setApayOut('Error: ' + e);
+      addLog('refillHashPool failed: ' + e, 'err');
+    }
+  }
+
+  async function handleClaimPending() {
+    const l = requireLsp(setApayOut);
+    if (!l) return;
+    try {
+      addLog('claimPendingPayments...', 'info');
+      const res = await l.claimPendingPayments();
+      setApayOut(json(res));
+      addLog('claimPendingPayments: ' + res.length + ' processed', 'ok');
+    } catch (e) {
+      setApayOut('Error: ' + e);
+      addLog('claimPendingPayments failed: ' + e, 'err');
+    }
+  }
+
+  async function handleApayNew() {
+    if (!utexo) return setApayOut('No UTEXOWallet active');
+    if (!apayHostNodeId.trim()) return setApayOut('Enter host node id');
+    try {
+      addLog('apayNew...', 'info');
+      const res = await utexo.apayNew(apayHostNodeId.trim());
+      setApayOut(json(res));
+      addLog('apayNew ok', 'ok');
+    } catch (e) {
+      setApayOut('Error: ' + e);
+      addLog('apayNew failed: ' + e, 'err');
+    }
+  }
+
+  async function handleApayNewWithAddress() {
+    if (!utexo) return setApayOut('No UTEXOWallet active');
+    if (!apayHostNodeId.trim() || !apayUsername.trim() || !apayDomain.trim()) {
+      return setApayOut('Enter host node id, username and domain');
+    }
+    try {
+      addLog('apayNewWithAddress...', 'info');
+      const res = await utexo.apayNewWithAddress(
+        apayHostNodeId.trim(),
+        apayUsername.trim(),
+        apayDomain.trim()
+      );
+      setApayOut(json(res));
+      addLog('apayNewWithAddress ok', 'ok');
+    } catch (e) {
+      setApayOut('Error: ' + e);
+      addLog('apayNewWithAddress failed: ' + e, 'err');
+    }
+  }
+
   return (
-    <div>
+    <div className="flex items-start gap-6">
+      {/* ── Function navigation (sticky left sidebar) ─────────────────────── */}
+      <nav className="hidden sm:block w-44 shrink-0 sticky top-4 max-h-[calc(100vh-2rem)] overflow-y-auto bg-[#161b22] border border-[#30363d] rounded-lg p-1.5">
+        {SECTION_NAV.map((g) => (
+          <div key={g.group} className="mb-1 last:mb-0">
+            <div className="px-2 pt-2 pb-1 text-[10px] font-bold uppercase tracking-widest text-[#484f58]">{g.group}</div>
+            {g.items.map((s) => (
+              <button
+                key={s.id}
+                onClick={() => scrollToSection(s.id)}
+                className={
+                  'block w-full text-left px-2 py-1 rounded text-xs whitespace-nowrap ' +
+                  (activeSection === s.id
+                    ? 'bg-[#0d1117] text-[#58a6ff] font-semibold'
+                    : 'text-[#8b949e] hover:text-[#58a6ff] hover:bg-[#0d1117]')
+                }
+              >
+                {s.label}
+              </button>
+            ))}
+          </div>
+        ))}
+      </nav>
+
+      <div className="flex-1 min-w-0">
       <h1 className="text-[#58a6ff] text-2xl font-bold mb-1">UTEXOWallet</h1>
       <p className="text-[#8b949e] text-sm mb-8">
         Full UTEXOWallet lifecycle — create, fund, issue assets, send/receive RGB, onchain bridge, Lightning
         <span className="ml-2 text-xs px-2 py-0.5 rounded bg-[#161b22] border border-[#30363d] text-[#8b949e]">RLN-backed · regtest / utexo / signet / testnet / mainnet</span>
       </p>
 
+      <GroupHeading>Onchain</GroupHeading>
+
       {/* ── Create Wallet ─────────────────────────────────────────────────── */}
-      <Section title="1. Create UTEXOWallet" hint="UTEXOWallet.create({ mnemonic, password, network, indexerUrl?, transportEndpoint? }) — auto-connects; URLs default per network when blank">
+      <Section id="sec-create" title="1. Create UTEXOWallet" hint="UTEXOWallet.create({ mnemonic, password, network, indexerUrl?, transportEndpoint? }) — auto-connects; URLs default per network when blank">
         <div className="flex gap-4 mb-4 flex-wrap">
           <Field label="Network">
             <select value={network} onChange={(e) => setNetwork(e.target.value as UtexoNetwork)} className={selectCls}>
@@ -728,7 +1180,7 @@ export function UtexoWalletPage() {
       )}
 
       {/* ── Go Online ─────────────────────────────────────────────────────── */}
-      <Section title="2. goOnline()" hint="Retry the indexer connection — create() already auto-connects, so this is only needed if the wallet shows offline.">
+      <Section id="sec-online" title="2. goOnline()" hint="Retry the indexer connection — create() already auto-connects, so this is only needed if the wallet shows offline.">
         {utexoWarn}
         <Field label="Indexer URL">
           <input value={indexerUrl} onChange={(e) => setIndexerUrl(e.target.value)} className={inputCls} />
@@ -738,7 +1190,7 @@ export function UtexoWalletPage() {
       </Section>
 
       {/* ── Wallet Info ───────────────────────────────────────────────────── */}
-      <Section title="3. Wallet Info" hint="getAddress · getBtcBalance · listUnspents · listAssets · getAssetBalance">
+      <Section id="sec-info" title="3. Wallet Info" hint="getAddress · getBtcBalance · listUnspents · listAssets · getAssetBalance">
         {utexoWarn}
         <div className="flex gap-2 flex-wrap mb-2">
           <Btn onClick={handleGetAddress} disabled={!utexo}>getAddress()</Btn>
@@ -749,7 +1201,7 @@ export function UtexoWalletPage() {
       </Section>
 
       {/* ── Fund ──────────────────────────────────────────────────────────── */}
-      <Section title="4. Fund Wallet" hint="utexo → UTEXO faucet node (rln-signet.utexo.com/faucet) · regtest → local gateway /dev/regtest/fund · testnet → thunderstack faucet">
+      <Section id="sec-fund" title="4. Fund Wallet" hint="utexo → UTEXO faucet node (rln-signet.utexo.com/faucet) · regtest → local gateway /dev/regtest/fund · testnet → thunderstack faucet">
         {utexoWarn}
         {utexo && !fundSupported && (
           <p className="text-xs text-[#d29922] mb-3">Faucet funding is available on utexo, regtest and testnet wallets.</p>
@@ -767,7 +1219,7 @@ export function UtexoWalletPage() {
       </Section>
 
       {/* ── BTC Send ──────────────────────────────────────────────────────── */}
-      <Section title="5. Send BTC" hint="sendBtcBegin → signPsbt → sendBtcEnd (or sendBtc for one-shot)">
+      <Section id="sec-send-btc" title="5. Send BTC" hint="sendBtcBegin → signPsbt → sendBtcEnd (or sendBtc for one-shot)">
         {utexoWarn}
         <div className="flex gap-4 mb-4 flex-wrap">
           <Field label="Recipient address">
@@ -793,7 +1245,7 @@ export function UtexoWalletPage() {
       </Section>
 
       {/* ── Create UTXOs ──────────────────────────────────────────────────── */}
-      <Section title="6. Create UTXOs" hint="Allocate colored UTXOs for RGB transfers. createUtxosBegin → signPsbt → createUtxosEnd">
+      <Section id="sec-utxos" title="6. Create UTXOs" hint="Allocate colored UTXOs for RGB transfers. createUtxosBegin → signPsbt → createUtxosEnd">
         {utexoWarn}
         <div className="flex gap-4 mb-4 flex-wrap">
           <Field label="num (optional)">
@@ -819,7 +1271,7 @@ export function UtexoWalletPage() {
       </Section>
 
       {/* ── Sync ──────────────────────────────────────────────────────────── */}
-      <Section title="7. Sync" hint="syncWallet() — sync BTC/UTXO state. refreshWallet() — refresh pending RGB transfers.">
+      <Section id="sec-sync" title="7. Sync" hint="syncWallet() — sync BTC/UTXO state. refreshWallet() — refresh pending RGB transfers.">
         {utexoWarn}
         <div className="flex gap-2 flex-wrap">
           <Btn onClick={handleSync} disabled={!utexo}>syncWallet()</Btn>
@@ -829,7 +1281,7 @@ export function UtexoWalletPage() {
       </Section>
 
       {/* ── Issue NIA ─────────────────────────────────────────────────────── */}
-      <Section title="8. Issue NIA Asset" hint="issueAssetNia() — Non-Inflatable Asset (fixed supply fungible token)">
+      <Section id="sec-nia" title="8. Issue NIA Asset" hint="issueAssetNia() — Non-Inflatable Asset (fixed supply fungible token)">
         {utexoWarn}
         <div className="flex gap-4 mb-2 flex-wrap">
           <Field label="Ticker">
@@ -852,7 +1304,7 @@ export function UtexoWalletPage() {
       </Section>
 
       {/* ── Issue IFA ─────────────────────────────────────────────────────── */}
-      <Section title="9. Issue IFA Asset" hint="issueAssetIfa() — Inflatable Fungible Asset (supply can be increased)">
+      <Section id="sec-ifa" title="9. Issue IFA Asset" hint="issueAssetIfa() — Inflatable Fungible Asset (supply can be increased)">
         {utexoWarn}
         <div className="flex gap-4 mb-2 flex-wrap">
           <Field label="Ticker">
@@ -883,7 +1335,7 @@ export function UtexoWalletPage() {
       </Section>
 
       {/* ── List Assets ───────────────────────────────────────────────────── */}
-      <Section title="10. List Assets" hint="listAssets() · getAssetBalance(assetId)">
+      <Section id="sec-assets" title="10. List Assets" hint="listAssets() · getAssetBalance(assetId)">
         {utexoWarn}
         <div className="flex gap-2 flex-wrap mb-4">
           <Btn onClick={handleListAssets} disabled={!utexo}>listAssets()</Btn>
@@ -898,7 +1350,7 @@ export function UtexoWalletPage() {
       </Section>
 
       {/* ── Receive RGB ───────────────────────────────────────────────────── */}
-      <Section title="11. Receive RGB Assets" hint="onchainReceive({ assetId?, amount?, witness }) — RLN rgb_invoice parity: one call, witness (default) or blind via the flag. Share the invoice (rgb:…) with the sender, not the recipientId.">
+      <Section id="sec-receive" title="11. Receive RGB Assets" hint="onchainReceive({ assetId?, amount?, witness }) — RLN rgb_invoice parity: one call, witness (default) or blind via the flag. Share the invoice (rgb:…) with the sender, not the recipientId.">
         {utexoWarn}
         <div className="flex gap-4 mb-4 flex-wrap">
           <Field label="Asset ID (optional)">
@@ -924,7 +1376,7 @@ export function UtexoWalletPage() {
       </Section>
 
       {/* ── Send RGB ──────────────────────────────────────────────────────── */}
-      <Section title="12. Send RGB Assets" hint="onchainSendBegin → signPsbt → onchainSendEnd (or onchainSend() for one-shot) — the canonical RGB send, RN-parity names">
+      <Section id="sec-send-rgb" title="12. Send RGB Assets" hint="onchainSendBegin → signPsbt → onchainSendEnd (or onchainSend() for one-shot) — the canonical RGB send, RN-parity names">
         {utexoWarn}
         <Field label="Recipient invoice (full rgb:… string — not the bcrt:/tb: recipient ID)">
           <input value={sendInvoice} onChange={(e) => setSendInvoice(e.target.value)} className={inputCls} placeholder="rgb:..." />
@@ -962,7 +1414,7 @@ export function UtexoWalletPage() {
       </Section>
 
       {/* ── Transactions & Transfers ──────────────────────────────────────── */}
-      <Section title="13. Transactions & Transfers" hint="listTransactions · listTransfers(assetId?) · failTransfers() — listOnchainTransfers() is an alias of listTransfers()">
+      <Section id="sec-transfers" title="13. Transactions & Transfers" hint="listTransactions · listTransfers(assetId?) · failTransfers() — listOnchainTransfers() is an alias of listTransfers()">
         {utexoWarn}
         <div className="flex gap-4 mb-4 items-end flex-wrap">
           <Field label="Asset ID (optional, for listTransfers)">
@@ -981,7 +1433,7 @@ export function UtexoWalletPage() {
       </Section>
 
       {/* ── Keys ──────────────────────────────────────────────────────────── */}
-      <Section title="14. Keys" hint="getXpub() — vanilla + colored account xpubs · getNetwork()">
+      <Section id="sec-keys" title="14. Keys" hint="getXpub() — vanilla + colored account xpubs · getNetwork()">
         {utexoWarn}
         <div className="flex gap-4 items-end flex-wrap">
           <Btn onClick={handleGetXpub} disabled={!utexo} className="mb-4">getXpub() + getNetwork()</Btn>
@@ -989,50 +1441,8 @@ export function UtexoWalletPage() {
         <OutputBox value={pubKeysOut} />
       </Section>
 
-      {/* ── Lightning ─────────────────────────────────────────────────────── */}
-      <Section title="15. Lightning Protocol" hint="createLightningInvoice · payLightningInvoice — native Lightning via the embedded RLN node (requires channels; see the LSP page for zero-conf setup)">
-        {utexoWarn}
-        <p className="text-[#8b949e] text-xs mb-3">
-          <span className="text-[#c9d1d9]">createLightningInvoice</span> — create a receive invoice
-        </p>
-        <div className="flex gap-4 mb-4 flex-wrap">
-          <Field label="Asset ID">
-            <input value={lnAssetId} onChange={(e) => setLnAssetId(e.target.value)} className={inputCls} placeholder="rgb:..." />
-          </Field>
-          <Field label="Amount">
-            <input type="number" value={lnAmount} onChange={(e) => setLnAmount(e.target.value)} className={inputCls} placeholder="100" min="1" />
-          </Field>
-          <Btn onClick={handleCreateLightningInvoice} disabled={!utexo} className="mb-4">createLightningInvoice()</Btn>
-        </div>
-        <p className="text-[#8b949e] text-xs mb-3">
-          <span className="text-[#c9d1d9]">payLightningInvoice</span> — atomic pay via the local RLN node (no begin/sign/end steps — the node signs internally)
-        </p>
-        <div className="flex gap-4 mb-2 flex-wrap">
-          <Field label="LN invoice">
-            <input value={lnInvoice} onChange={(e) => setLnInvoice(e.target.value)} className={inputCls} placeholder="lnbc1..." />
-          </Field>
-          <Field label="Asset ID (optional)">
-            <input value={lnSendAssetId} onChange={(e) => setLnSendAssetId(e.target.value)} className={inputCls} placeholder="rgb:..." />
-          </Field>
-          <Field label="Asset amount (optional)">
-            <input type="number" value={lnSendAmount} onChange={(e) => setLnSendAmount(e.target.value)} className={inputCls} placeholder="100" min="1" />
-          </Field>
-        </div>
-        <Btn variant="accent" onClick={handlePayLn} disabled={!utexo} className="mb-4">payLightningInvoice()</Btn>
-        <div className="flex gap-4 mb-2 items-end flex-wrap">
-          <Field label="Payment hash (for send status — returned as txid)">
-            <input value={lnPaymentHash} onChange={(e) => setLnPaymentHash(e.target.value)} className={inputCls} placeholder="hex payment hash" />
-          </Field>
-        </div>
-        <div className="flex gap-2 mb-4 flex-wrap">
-          <Btn variant="secondary" onClick={handleGetLnSendStatus} disabled={!utexo}>getLightningSendRequest(paymentHash)</Btn>
-          <Btn variant="secondary" onClick={handleGetLnReceiveStatus} disabled={!utexo}>getLightningReceiveRequest(invoice)</Btn>
-        </div>
-        <OutputBox value={lnOut} />
-      </Section>
-
       {/* ── Validate Balance ──────────────────────────────────────────────── */}
-      <Section title="16. Validate Balance" hint="Demo-side check via getAssetBalance() — the SDK has no validateBalance() method">
+      <Section id="sec-validate" title="15. Validate Balance" hint="Demo-side check via getAssetBalance() — the SDK has no validateBalance() method">
         {utexoWarn}
         <div className="flex gap-4 items-end flex-wrap">
           <Field label="Asset ID">
@@ -1047,7 +1457,7 @@ export function UtexoWalletPage() {
       </Section>
 
       {/* ── Decode / Sign / Verify ────────────────────────────────────────── */}
-      <Section title="17. Decode / Sign / Verify" hint="decodeRGBInvoice · signMessage · verifyMessage">
+      <Section id="sec-crypto" title="16. Decode / Sign / Verify" hint="decodeRGBInvoice · signMessage · verifyMessage">
         {utexoWarn}
         <Field label="RGB invoice to decode">
           <input value={decodeInvoice} onChange={(e) => setDecodeInvoice(e.target.value)} className={inputCls} placeholder="rgb:..." />
@@ -1071,6 +1481,241 @@ export function UtexoWalletPage() {
 
         <OutputBox value={cryptoOut} />
       </Section>
+
+      <GroupHeading>Lightning</GroupHeading>
+
+      {/* ── LN Node & Peers ───────────────────────────────────────────────── */}
+      <Section id="sec-ln-peers" title="17. Node & Peers" hint="getNodeInfo · listPeers · connectPeer(peerAddr, peerPubkey) · disconnectPeer(peerPubkey)">
+        {utexoWarn}
+        <div className="flex gap-2 flex-wrap mb-4">
+          <Btn onClick={handleGetNodeInfo} disabled={!utexo}>getNodeInfo()</Btn>
+          <Btn variant="secondary" onClick={handleListPeers} disabled={!utexo}>listPeers()</Btn>
+        </div>
+        <div className="flex gap-4 mb-2 flex-wrap">
+          <Field label="Peer address (host:port)">
+            <input value={lnPeerAddr} onChange={(e) => setLnPeerAddr(e.target.value)} className={inputCls} placeholder="127.0.0.1:9735" />
+          </Field>
+          <Field label="Peer pubkey">
+            <input value={lnPeerPubkey} onChange={(e) => setLnPeerPubkey(e.target.value)} className={inputCls} placeholder="02abc..." />
+          </Field>
+        </div>
+        <div className="flex gap-2 flex-wrap">
+          <Btn onClick={handleConnectPeer} disabled={!utexo}>connectPeer()</Btn>
+          <Btn variant="danger" onClick={handleDisconnectPeer} disabled={!utexo}>disconnectPeer()</Btn>
+        </div>
+        <OutputBox value={lnPeersOut} />
+      </Section>
+
+      {/* ── LN Channels ───────────────────────────────────────────────────── */}
+      <Section id="sec-ln-channels" title="18. Channels" hint="openChannel({ peerPubkey, capacitySat, isPublic, assetId?, assetLocalAmount? }) · listChannels · closeChannel(channelId, force?)">
+        {utexoWarn}
+        <div className="flex gap-4 mb-2 flex-wrap">
+          <Field label="Peer pubkey">
+            <input value={chanPeerPubkey} onChange={(e) => setChanPeerPubkey(e.target.value)} className={inputCls} placeholder="02abc..." />
+          </Field>
+          <Field label="Capacity (sats)">
+            <input type="number" value={chanCapacity} onChange={(e) => setChanCapacity(e.target.value)} className={inputCls} min="1" />
+          </Field>
+          <Field label="Public">
+            <select value={chanPublic} onChange={(e) => setChanPublic(e.target.value)} className={selectCls}>
+              <option value="true">yes</option>
+              <option value="false">no</option>
+            </select>
+          </Field>
+        </div>
+        <div className="flex gap-4 mb-4 flex-wrap">
+          <Field label="Asset ID (optional — RGB channel)">
+            <input value={chanAssetId} onChange={(e) => setChanAssetId(e.target.value)} className={inputCls} placeholder="rgb:..." />
+          </Field>
+          <Field label="Asset local amount (optional)">
+            <input type="number" value={chanAssetAmount} onChange={(e) => setChanAssetAmount(e.target.value)} className={inputCls} placeholder="100" min="1" />
+          </Field>
+        </div>
+        <div className="flex gap-2 flex-wrap mb-4">
+          <Btn onClick={handleOpenChannel} disabled={!utexo}>openChannel()</Btn>
+          <Btn variant="secondary" onClick={handleListChannels} disabled={!utexo}>listChannels()</Btn>
+        </div>
+        <div className="flex gap-4 mb-2 flex-wrap">
+          <Field label="Channel ID (for close)">
+            <input value={closeChannelId} onChange={(e) => setCloseChannelId(e.target.value)} className={inputCls} />
+          </Field>
+          <Field label="Force close">
+            <select value={closeForce} onChange={(e) => setCloseForce(e.target.value)} className={selectCls}>
+              <option value="false">no</option>
+              <option value="true">yes (force)</option>
+            </select>
+          </Field>
+        </div>
+        <Btn variant="danger" onClick={handleCloseChannel} disabled={!utexo}>closeChannel()</Btn>
+        <OutputBox value={chanOut} />
+      </Section>
+
+      {/* ── LN Create Invoice ─────────────────────────────────────────────── */}
+      <Section id="sec-ln-invoice" title="19. Create Invoice" hint="createLightningInvoice({ asset }) — receive invoice via the embedded RLN node (requires channels; see the LSP sections below for zero-conf setup)">
+        {utexoWarn}
+        <div className="flex gap-4 mb-2 flex-wrap">
+          <Field label="Asset ID">
+            <input value={lnAssetId} onChange={(e) => setLnAssetId(e.target.value)} className={inputCls} placeholder="rgb:..." />
+          </Field>
+          <Field label="Amount">
+            <input type="number" value={lnAmount} onChange={(e) => setLnAmount(e.target.value)} className={inputCls} placeholder="100" min="1" />
+          </Field>
+        </div>
+        <Btn onClick={handleCreateLightningInvoice} disabled={!utexo}>createLightningInvoice()</Btn>
+        <OutputBox value={lnOut} />
+      </Section>
+
+      {/* ── LN Pay Invoice ────────────────────────────────────────────────── */}
+      <Section id="sec-ln-pay" title="20. Pay Invoice" hint="payLightningInvoice — atomic pay via the local RLN node (no begin/sign/end steps — the node signs internally)">
+        {utexoWarn}
+        <div className="flex gap-4 mb-2 flex-wrap">
+          <Field label="LN invoice">
+            <input value={lnInvoice} onChange={(e) => setLnInvoice(e.target.value)} className={inputCls} placeholder="lnbc1..." />
+          </Field>
+          <Field label="Asset ID (optional)">
+            <input value={lnSendAssetId} onChange={(e) => setLnSendAssetId(e.target.value)} className={inputCls} placeholder="rgb:..." />
+          </Field>
+          <Field label="Asset amount (optional)">
+            <input type="number" value={lnSendAmount} onChange={(e) => setLnSendAmount(e.target.value)} className={inputCls} placeholder="100" min="1" />
+          </Field>
+        </div>
+        <Btn variant="accent" onClick={handlePayLn} disabled={!utexo}>payLightningInvoice()</Btn>
+        <OutputBox value={lnPayOut} />
+      </Section>
+
+      {/* ── LN Status & Decode ────────────────────────────────────────────── */}
+      <Section id="sec-ln-status" title="21. Payment Status & Decode" hint="getLightningSendRequest(paymentHash) · getLightningReceiveRequest(invoice) · decodeLnInvoice(invoice)">
+        {utexoWarn}
+        <div className="flex gap-4 mb-2 flex-wrap">
+          <Field label="LN invoice (receive status / decode)">
+            <input value={lnInvoice} onChange={(e) => setLnInvoice(e.target.value)} className={inputCls} placeholder="lnbc1..." />
+          </Field>
+          <Field label="Payment hash (send status — returned as txid)">
+            <input value={lnPaymentHash} onChange={(e) => setLnPaymentHash(e.target.value)} className={inputCls} placeholder="hex payment hash" />
+          </Field>
+        </div>
+        <div className="flex gap-2 flex-wrap">
+          <Btn variant="secondary" onClick={handleGetLnSendStatus} disabled={!utexo}>getLightningSendRequest()</Btn>
+          <Btn variant="secondary" onClick={handleGetLnReceiveStatus} disabled={!utexo}>getLightningReceiveRequest()</Btn>
+          <Btn variant="secondary" onClick={handleDecodeLnInvoice} disabled={!utexo}>decodeLnInvoice()</Btn>
+        </div>
+        <OutputBox value={lnStatusOut} />
+      </Section>
+
+      <GroupHeading>LSP</GroupHeading>
+
+      {/* ── LSP: Create + Connect ─────────────────────────────────────────── */}
+      <Section
+        id="sec-lsp-connect"
+        title="22. Create + Connect"
+        hint="UTEXOWallet.createLsp() — leave peer fields blank to auto-discover from the wallet's lspBaseUrl (GET /get_info). On regtest the fields are prefilled from the local LSP stack config (.env.local)."
+      >
+        {utexoWarn}
+        <div className="flex gap-4 mb-2 flex-wrap">
+          <Field label="LSP Base URL (optional if wallet has lspBaseUrl)">
+            <input value={lspBaseUrl} onChange={(e) => setLspBaseUrl(e.target.value)} className={inputCls} placeholder="https://lsp.utexo.com" />
+          </Field>
+          <Field label="Peer Port">
+            <input value={lspPeerPort} onChange={(e) => setLspPeerPort(e.target.value)} className={inputCls} />
+          </Field>
+        </div>
+        <div className="flex gap-4 mb-2 flex-wrap">
+          <Field label="Peer Pubkey (optional — explicit peer)">
+            <input value={lspPeerPubkey} onChange={(e) => setLspPeerPubkey(e.target.value)} className={inputCls} placeholder="leave blank to auto-discover" />
+          </Field>
+          <Field label="Peer Host (optional)">
+            <input value={lspPeerHost} onChange={(e) => setLspPeerHost(e.target.value)} className={inputCls} />
+          </Field>
+          <Field label="Bearer Token (APay routes)">
+            <input value={lspBearerToken} onChange={(e) => setLspBearerToken(e.target.value)} className={inputCls} />
+          </Field>
+        </div>
+        <div className="flex gap-2 flex-wrap mb-2">
+          <Btn onClick={handleCreateLsp} disabled={!utexo}>Create LSP</Btn>
+          <Btn variant="accent" onClick={handleLspConnect} disabled={!lsp}>Connect + get_info</Btn>
+        </div>
+        <OutputBox value={lspConnectOut} />
+      </Section>
+
+      {/* ── LSP: Receive Asset ────────────────────────────────────────────── */}
+      <Section id="sec-lsp-receive" title="23. Receive Asset (Lightning → RGB)" hint="receiveAsset() then awaitReceiveSettlement() — share the returned rgbInvoice with the on-chain sender.">
+        <div className="flex gap-4 mb-2 flex-wrap">
+          <Field label="Asset ID">
+            <input value={lspRecvAssetId} onChange={(e) => setLspRecvAssetId(e.target.value)} className={inputCls} />
+          </Field>
+          <Field label="Amount (sats)">
+            <input value={lspRecvSats} onChange={(e) => setLspRecvSats(e.target.value)} className={inputCls} />
+          </Field>
+          <Field label="Amount (RGB)">
+            <input value={lspRecvRgb} onChange={(e) => setLspRecvRgb(e.target.value)} className={inputCls} />
+          </Field>
+        </div>
+        <div className="flex gap-2 flex-wrap mb-2">
+          <Btn onClick={handleLspReceiveAsset} disabled={!lsp}>receiveAsset</Btn>
+          <Btn variant="accent" onClick={handleLspAwaitSettlement} disabled={!lsp || !lspRecvLnInvoice}>awaitReceiveSettlement</Btn>
+        </div>
+        <OutputBox value={lspRecvOut} />
+      </Section>
+
+      {/* ── LSP: Send Asset ───────────────────────────────────────────────── */}
+      <Section id="sec-lsp-send" title="24. Send Asset (RGB → Lightning)" hint="sendAsset() — submit the recipient's on-chain RGB invoice; the LSP returns a BOLT11 which the wallet pays.">
+        <Field label="Recipient RGB Invoice">
+          <input value={lspSendRgbInvoice} onChange={(e) => setLspSendRgbInvoice(e.target.value)} className={inputCls} placeholder="rgb:..." />
+        </Field>
+        <Btn onClick={handleLspSendAsset} disabled={!lsp} className="mb-2">sendAsset</Btn>
+        <OutputBox value={lspSendOut} />
+      </Section>
+
+      {/* ── LSP: Pay Lightning Address ────────────────────────────────────── */}
+      <Section id="sec-lsp-pay" title="25. Pay Lightning Address" hint="payAddress() — resolves the address (LNURL) and pays it.">
+        <div className="flex gap-4 mb-2 flex-wrap">
+          <Field label="Lightning Address">
+            <input value={payAddress} onChange={(e) => setPayAddress(e.target.value)} className={inputCls} placeholder="alice@lsp.utexo.com" />
+          </Field>
+          <Field label="Amount (msat)">
+            <input value={payAmtMsat} onChange={(e) => setPayAmtMsat(e.target.value)} className={inputCls} />
+          </Field>
+        </div>
+        <div className="flex gap-4 mb-2 flex-wrap">
+          <Field label="Asset ID (optional)">
+            <input value={payAssetId} onChange={(e) => setPayAssetId(e.target.value)} className={inputCls} />
+          </Field>
+          <Field label="Asset Amount (optional)">
+            <input value={payAssetAmount} onChange={(e) => setPayAssetAmount(e.target.value)} className={inputCls} />
+          </Field>
+        </div>
+        <Btn onClick={handlePayAddress} disabled={!lsp} className="mb-2">payAddress</Btn>
+        <OutputBox value={payOut} />
+      </Section>
+
+      {/* ── LSP: APay ─────────────────────────────────────────────────────── */}
+      <Section id="sec-lsp-apay" title="26. APay — Lightning Address & Hash Pool" hint="enableLightningAddress() registers an attested hash batch; refill/claim manage the pool.">
+        {utexoWarn}
+        <div className="flex gap-2 flex-wrap mb-2">
+          <Btn onClick={handleEnableLightningAddress} disabled={!lsp}>enableLightningAddress</Btn>
+          <Btn variant="secondary" onClick={handleRefillHashPool} disabled={!lsp}>refillHashPool</Btn>
+          <Btn variant="secondary" onClick={handleClaimPending} disabled={!lsp}>claimPendingPayments</Btn>
+        </div>
+
+        <p className="text-xs text-[#8b949e] mt-4 mb-2">Direct node calls (no LSP HTTP composition):</p>
+        <div className="flex gap-4 mb-2 flex-wrap">
+          <Field label="Host Node ID">
+            <input value={apayHostNodeId} onChange={(e) => setApayHostNodeId(e.target.value)} className={inputCls} />
+          </Field>
+          <Field label="Username">
+            <input value={apayUsername} onChange={(e) => setApayUsername(e.target.value)} className={inputCls} />
+          </Field>
+          <Field label="Domain">
+            <input value={apayDomain} onChange={(e) => setApayDomain(e.target.value)} className={inputCls} />
+          </Field>
+        </div>
+        <div className="flex gap-2 flex-wrap mb-2">
+          <Btn onClick={handleApayNew} disabled={!utexo}>apayNew</Btn>
+          <Btn variant="secondary" onClick={handleApayNewWithAddress} disabled={!utexo}>apayNewWithAddress</Btn>
+        </div>
+        <OutputBox value={apayOut} />
+      </Section>
+      </div>
     </div>
   );
 }
