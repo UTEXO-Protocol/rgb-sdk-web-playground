@@ -241,12 +241,15 @@ export function useApayFlow(role: Role) {
       password: `apay-${role}`,
       proxyUrl: CFG.gatewayWs,
       transportEndpoint: CFG.transport,
+      indexerUrl: CFG.indexer,
+      skipConsistencyCheck: true,
       lspBaseUrl: CFG.lspBaseUrl,
       dataDir: `/apay_${role}_${fresh}`,
       nodeRuntimeId: `apay-${role}-${fresh}`,
     });
     walletRef.current = wallet;
-    await wallet.goOnline(CFG.indexer, true);
+    if (!wallet.isOnline())
+      throw new Error(`indexer unreachable at ${CFG.indexer} — is the LSP web stack running?`);
     const address = await wallet.getAddress();
     res(`${role}.create`, { address: short(address) });
 

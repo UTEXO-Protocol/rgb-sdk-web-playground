@@ -40,9 +40,10 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      // bitcoind RPC (regtest mine/fund)
+      // bitcoind RPC (regtest mine/fund) — the compose.wasm.yaml esplora
+      // container's bitcoind, host-mapped on 18444 (see start-lsp-web.sh).
       '/bitcoind': {
-        target: 'http://localhost:18443',
+        target: 'http://localhost:18444',
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/bitcoind/, ''),
       },

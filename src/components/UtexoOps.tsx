@@ -354,7 +354,7 @@ export function UtexoOps({ utexo, walletId, network }: Props) {
   return (
     <>
       {/* Go Online */}
-      <Section title="Go Online" hint="Connect to an Esplora indexer. Note: UTEXOWallet.goOnline() may not be fully implemented.">
+      <Section title="Go Online" hint="Retry the indexer connection — create() already auto-connects (idempotent no-op when online).">
         <Field label="Indexer URL">
           <input value={indexerUrl} onChange={(e) => setIndexerUrl(e.target.value)} className={inputCls} />
         </Field>

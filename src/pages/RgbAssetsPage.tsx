@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { UTEXOWallet } from '@utexo/rgb-sdk-web';
 import type { RlnWalletManager } from '@utexo/rgb-sdk-web';
 import { useStore } from '../store';
 import { Section } from '../components/Section';
@@ -183,7 +184,10 @@ export function RgbAssetsPage() {
     if (!wallet) { setSendOut('Create a wallet first'); return; }
     if (!sendInvoice.trim()) { setSendOut('Enter recipient invoice'); return; }
     addLog('Send assets begin...', 'info');
-    const psbt = await wallet.sendBegin(sendParams());
+    // UTEXOWallet exposes RGB sends under the RN-parity onchainSend* names.
+    const psbt = wallet instanceof UTEXOWallet
+      ? await wallet.onchainSendBegin(sendParams())
+      : await wallet.sendBegin(sendParams());
     setPendingPsbt(psbt);
     setSignedPsbt(null);
     setSendOut('Step 1 — Unsigned PSBT:\n' + psbt);
@@ -202,7 +206,9 @@ export function RgbAssetsPage() {
   async function handleSendEnd() {
     if (!wallet || !signedPsbt) { setSendOut('Sign PSBT first'); return; }
     addLog('Send assets end (broadcast)...', 'info');
-    const result = await wallet.sendEnd({ signedPsbt });
+    const result = wallet instanceof UTEXOWallet
+      ? await wallet.onchainSendEnd({ signedPsbt })
+      : await wallet.sendEnd({ signedPsbt });
     setPendingPsbt(null);
     setSignedPsbt(null);
     setSendOut('Step 3 — Result:\n' + json(result));
@@ -213,7 +219,9 @@ export function RgbAssetsPage() {
     if (!wallet) { setSendOut('Create a wallet first'); return; }
     if (!sendInvoice.trim()) { setSendOut('Enter recipient invoice'); return; }
     addLog('Sending assets (auto)...', 'info');
-    const result = await wallet.send(sendParams());
+    const result = wallet instanceof UTEXOWallet
+      ? await wallet.onchainSend(sendParams())
+      : await wallet.send(sendParams());
     setSendOut('Result (auto):\n' + json(result));
     addLog('Transfer submitted (auto)', 'ok');
   }

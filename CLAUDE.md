@@ -20,7 +20,7 @@ Interactive React SPA that demos every function of the `@utexo/rgb-sdk-web` WASM
 
 The SDK is **RLN-only** (the old rgb-lib-wasm `WalletManager` stack was removed). All wallets are backed by `rln-wasm-sdk`.
 
-**Startup flow**: `App.tsx` calls `initRlnWasm()` (async WASM init), then `autoRestore()` to recover wallets from `localStorage`. The Zustand store in `src/store.ts` holds live wallet instances (`type: 'utexo' | 'rln'`, instance `UTEXOWallet | RlnWalletManager`) plus an activity log. Instances **must** live in Zustand (not React state) — WASM objects cannot be cloned/serialized. Both wallet types restore via `*.create({ mnemonic, password, network, transportEndpoint?, proxyUrl?, nodeRuntimeId? })`, so the saved `WalletConfig` must include `password`.
+**Startup flow**: `App.tsx` calls `initRlnWasm()` (async WASM init), then `autoRestore()` to recover wallets from `localStorage`. The Zustand store in `src/store.ts` holds live wallet instances (`type: 'utexo' | 'rln'`, instance `UTEXOWallet | RlnWalletManager`) plus an activity log. Instances **must** live in Zustand (not React state) — WASM objects cannot be cloned/serialized. Both wallet types restore via `*.create({ mnemonic, password, network, indexerUrl?, transportEndpoint?, proxyUrl?, nodeRuntimeId? })`, so the saved `WalletConfig` must include `password`. `create()` auto-connects to the indexer (saved `indexerUrl` or the network default) non-fatally — check `isOnline()` afterwards; no separate `goOnline()` call is needed.
 
 **Pages** (one route each in `App.tsx`):
 - `KeysPage` — `generateKeys`, `restoreKeys`, `deriveKeysFromMnemonic`, `bip39`

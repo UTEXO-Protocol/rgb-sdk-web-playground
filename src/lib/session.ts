@@ -101,6 +101,8 @@ async function restoreEntry(entry: SessionEntry): Promise<WalletInstance | null>
       return null; // RLN-backed UTEXOWallet needs the SDK password
     }
     await initRlnWasm();
+    // create() auto-connects (non-fatal): indexerUrl falls back to the
+    // network default when none was saved.
     const w = await UTEXOWallet.create({
       mnemonic: config.mnemonic,
       password: config.password,
@@ -108,18 +110,16 @@ async function restoreEntry(entry: SessionEntry): Promise<WalletInstance | null>
       proxyUrl: config.proxyUrl || undefined,
       transportEndpoint: config.transportEndpoint || undefined,
       nodeRuntimeId: config.nodeRuntimeId || undefined,
+      indexerUrl: config.indexerUrl ? proxyIndexerUrl(config.indexerUrl) : undefined,
     });
-    const indexer = config.indexerUrl ? proxyIndexerUrl(config.indexerUrl) : undefined;
-    try { await w.goOnline(indexer as string); } catch (e) {
-      console.warn('[UTEXO restore] goOnline failed (non-fatal):', String(e));
-    }
+    if (!w.isOnline()) console.warn('[UTEXO restore] wallet restored OFFLINE (indexer unreachable)');
     return {
       id: entry.id,
       label: entry.label,
       type: 'utexo',
       config,
       instance: w,
-      online: true,
+      online: w.isOnline(),
     };
   }
 
@@ -133,6 +133,8 @@ async function restoreEntry(entry: SessionEntry): Promise<WalletInstance | null>
     console.log('[RLN restore] initRlnWasm ok, calling RlnWalletManager.create...');
     let m: Awaited<ReturnType<typeof RlnWalletManager.create>>;
     try {
+      // create() auto-connects (non-fatal): indexerUrl falls back to the
+      // network default when none was saved.
       m = await RlnWalletManager.create({
         mnemonic: config.mnemonic,
         password: config.password,
@@ -140,20 +142,12 @@ async function restoreEntry(entry: SessionEntry): Promise<WalletInstance | null>
         proxyUrl: config.proxyUrl || undefined,
         transportEndpoint: config.transportEndpoint || undefined,
         nodeRuntimeId: config.nodeRuntimeId || undefined,
+        indexerUrl: config.indexerUrl ? proxyIndexerUrl(config.indexerUrl) : undefined,
       });
-      console.log('[RLN restore] RlnWalletManager.create ok');
+      console.log('[RLN restore] RlnWalletManager.create ok, online:', m.isOnline());
     } catch (e) {
       console.error('[RLN restore] RlnWalletManager.create FAILED:', String(e));
       throw e;
-    }
-    // Pass undefined to fall back to DEFAULT_INDEXER_URLS for the network
-    const rlnIndexer = config.indexerUrl ? proxyIndexerUrl(config.indexerUrl) : undefined;
-    console.log('[RLN restore] goOnline start, indexer:', rlnIndexer ?? '(default)');
-    try {
-      await m.goOnline(rlnIndexer);
-      console.log('[RLN restore] goOnline ok');
-    } catch (e) {
-      console.warn('[RLN restore] goOnline failed (non-fatal):', String(e));
     }
     return {
       id: entry.id,
@@ -161,7 +155,7 @@ async function restoreEntry(entry: SessionEntry): Promise<WalletInstance | null>
       type: 'rln',
       config,
       instance: m,
-      online: true, // goOnline always attempted (uses default URL if none saved)
+      online: m.isOnline(),
     };
   }
 

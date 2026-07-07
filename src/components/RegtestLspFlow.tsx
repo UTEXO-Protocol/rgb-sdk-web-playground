@@ -133,20 +133,23 @@ export function RegtestLspFlow() {
     // fails with "introduced chain cannot connect" after the regtest chain
     // advances/resets). The mnemonic stays stable so funding hits the same keys.
     const fresh = Date.now().toString(16);
+    // skipConsistencyCheck=true matches the official example (regtest); the full
+    // check can hang on a fresh esplora-indexed wallet.
     const wallet = await UTEXOWallet.create({
       network: 'regtest',
       mnemonic,
       password: `lsp-${r}`,
       proxyUrl: CFG.gatewayWs,
       transportEndpoint: CFG.transport,
+      indexerUrl: CFG.indexer,
+      skipConsistencyCheck: true,
       lspBaseUrl: CFG.lspBaseUrl,
       dataDir: `/rln_${r}_${fresh}`,
       nodeRuntimeId: `web-${r}-${fresh}`,
     });
     walletRef.current = wallet;
-    // skipConsistencyCheck=true matches the official example (regtest); the full
-    // check can hang on a fresh esplora-indexed wallet.
-    await wallet.goOnline(CFG.indexer, true);
+    if (!wallet.isOnline())
+      throw new Error(`indexer unreachable at ${CFG.indexer} — is the LSP web stack running?`);
     const address = await wallet.getAddress();
     log(`address: ${address}`);
 
