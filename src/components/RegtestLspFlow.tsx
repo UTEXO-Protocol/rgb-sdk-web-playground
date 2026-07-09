@@ -135,7 +135,7 @@ export function RegtestLspFlow() {
     const fresh = Date.now().toString(16);
     // skipConsistencyCheck=true matches the official example (regtest); the full
     // check can hang on a fresh esplora-indexed wallet.
-    const wallet = await UTEXOWallet.create({
+    const wallet = new UTEXOWallet({
       network: 'regtest',
       mnemonic,
       password: `lsp-${r}`,
@@ -147,6 +147,7 @@ export function RegtestLspFlow() {
       dataDir: `/rln_${r}_${fresh}`,
       nodeRuntimeId: `web-${r}-${fresh}`,
     });
+    await wallet.init();
     walletRef.current = wallet;
     if (!wallet.isOnline())
       throw new Error(`indexer unreachable at ${CFG.indexer} — is the LSP web stack running?`);

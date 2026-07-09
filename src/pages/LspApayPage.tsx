@@ -9,6 +9,8 @@ import { useActiveWallet } from '../hooks/useActiveWallet';
 import { json } from '../lib/utils';
 import { RegtestLspFlow } from '../components/RegtestLspFlow';
 import { ApayCartCheckout } from '../components/apay/ApayCartCheckout';
+import { RegularChannelFlow } from '../components/apay/RegularChannelFlow';
+import { KeysendReproFlow } from '../components/apay/KeysendReproFlow';
 
 export function LspApayPage() {
   const addLog = useStore((s) => s.addLog);
@@ -281,6 +283,10 @@ export function LspApayPage() {
       <RegtestLspFlow />
 
       <ApayCartCheckout />
+
+      <RegularChannelFlow />
+
+      <KeysendReproFlow />
 
       <Section
         title="1. Create + Connect"

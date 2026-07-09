@@ -235,7 +235,7 @@ export function useApayFlow(role: Role) {
     // stale checkpoint; mnemonic stays stable so funding hits the same keys.
     const fresh = Date.now().toString(16);
     req(`${role}.create`, { network: 'regtest', dataDir: `/apay_${role}_${fresh}` });
-    const wallet = await UTEXOWallet.create({
+    const wallet = new UTEXOWallet({
       network: 'regtest',
       mnemonic,
       password: `apay-${role}`,
@@ -247,6 +247,7 @@ export function useApayFlow(role: Role) {
       dataDir: `/apay_${role}_${fresh}`,
       nodeRuntimeId: `apay-${role}-${fresh}`,
     });
+    await wallet.init();
     walletRef.current = wallet;
     if (!wallet.isOnline())
       throw new Error(`indexer unreachable at ${CFG.indexer} — is the LSP web stack running?`);

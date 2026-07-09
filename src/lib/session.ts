@@ -101,9 +101,9 @@ async function restoreEntry(entry: SessionEntry): Promise<WalletInstance | null>
       return null; // RLN-backed UTEXOWallet needs the SDK password
     }
     await initRlnWasm();
-    // create() auto-connects (non-fatal): indexerUrl falls back to the
+    // init() auto-connects (non-fatal): indexerUrl falls back to the
     // network default when none was saved.
-    const w = await UTEXOWallet.create({
+    const w = new UTEXOWallet({
       mnemonic: config.mnemonic,
       password: config.password,
       network: config.network,
@@ -112,6 +112,7 @@ async function restoreEntry(entry: SessionEntry): Promise<WalletInstance | null>
       nodeRuntimeId: config.nodeRuntimeId || undefined,
       indexerUrl: config.indexerUrl ? proxyIndexerUrl(config.indexerUrl) : undefined,
     });
+    await w.init();
     if (!w.isOnline()) console.warn('[UTEXO restore] wallet restored OFFLINE (indexer unreachable)');
     return {
       id: entry.id,

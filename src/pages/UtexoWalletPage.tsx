@@ -257,9 +257,9 @@ export function UtexoWalletPage() {
     try {
       const walletLabel = label.trim() || 'UTEXOWallet (' + network + ')';
       addLog('Creating UTEXOWallet (' + network + ')...', 'info');
-      // create() auto-connects — indexer/transport/proxy fall back to the
+      // init() auto-connects — indexer/transport/proxy fall back to the
       // network defaults when the fields are left blank.
-      const inst = await UTEXOWallet.create({
+      const inst = new UTEXOWallet({
         mnemonic: mnemonic.trim(),
         password,
         network,
@@ -267,6 +267,7 @@ export function UtexoWalletPage() {
         proxyUrl: proxyUrl.trim() || undefined,
         indexerUrl: indexerUrl.trim() ? proxyIndexerUrl(indexerUrl.trim()) : undefined,
       });
+      await inst.init();
 
       const xpubs = inst.getXpub();
       const config: WalletConfig = {
@@ -1129,7 +1130,7 @@ export function UtexoWalletPage() {
       <GroupHeading>Onchain</GroupHeading>
 
       {/* ── Create Wallet ─────────────────────────────────────────────────── */}
-      <Section id="sec-create" title="1. Create UTEXOWallet" hint="UTEXOWallet.create({ mnemonic, password, network, indexerUrl?, transportEndpoint? }) — auto-connects; URLs default per network when blank">
+      <Section id="sec-create" title="1. Create UTEXOWallet" hint="new UTEXOWallet({ mnemonic, password, network, indexerUrl?, transportEndpoint? }) + await init() — auto-connects; URLs default per network when blank">
         <div className="flex gap-4 mb-4 flex-wrap">
           <Field label="Network">
             <select value={network} onChange={(e) => setNetwork(e.target.value as UtexoNetwork)} className={selectCls}>
@@ -1180,7 +1181,7 @@ export function UtexoWalletPage() {
       )}
 
       {/* ── Go Online ─────────────────────────────────────────────────────── */}
-      <Section id="sec-online" title="2. goOnline()" hint="Retry the indexer connection — create() already auto-connects, so this is only needed if the wallet shows offline.">
+      <Section id="sec-online" title="2. goOnline()" hint="Retry the indexer connection — init() already auto-connects, so this is only needed if the wallet shows offline.">
         {utexoWarn}
         <Field label="Indexer URL">
           <input value={indexerUrl} onChange={(e) => setIndexerUrl(e.target.value)} className={inputCls} />

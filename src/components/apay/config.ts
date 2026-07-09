@@ -19,6 +19,9 @@ export const CFG = {
 export const FAUCET_API =
   env.VITE_FAUCET_RLN_VIA_GATEWAY ?? `${CFG.gatewayHttp}/dev/regular-rln`;
 
+// Faucet RLN LDK peer port — the wasm node dials it through the gateway ws relay.
+export const FAUCET_LDK_PORT = Number(env.VITE_FAUCET_LDK_PORT ?? 9748);
+
 export const BC_NAME = 'utexo-apay-flow';
 
 export const CART_ITEM = '1× RGB Token (UTST)';
@@ -32,6 +35,24 @@ export const MERCHANT_KEEPALIVE_MS = 15_000;
 export const APAY_HASH_REFILL_THRESHOLD = 3;
 /** Merchant re-broadcasts its Lightning Address so a late-opened buyer window catches it. */
 export const LNADDRESS_REBROADCAST_MS = 5_000;
+
+// Regular (non-virtual) hub → wasm channel test (RegularChannelFlow):
+// the Faucet RLN opens an on-chain-funded RGB channel to the wasm node,
+// pushing half the asset so both sides can pay from the start.
+export const REGULAR_CHANNEL_CAPACITY_SAT = 100_000;
+// Must comfortably exceed REGULAR_PAY_MSAT + the 1% LDK channel reserve
+// (1000 sat on 100k) — 3.5M msat left only ~2.5M spendable → RouteNotFound.
+export const REGULAR_CHANNEL_PUSH_MSAT = 10_000_000;
+export const REGULAR_CHANNEL_ASSET_AMOUNT = 200;
+export const REGULAR_CHANNEL_PUSH_ASSET_AMOUNT = 100;
+export const REGULAR_PAY_ASSET_AMOUNT = 10;
+// Payback is intentionally smaller than the pay leg, so the post-close on-chain
+// balances show a real difference (wasm 100−10+5=95, hub 100+10−5=105) instead
+// of netting back to the pushed amounts.
+export const REGULAR_PAYBACK_ASSET_AMOUNT = 5;
+export const REGULAR_PAY_MSAT = 3_000_000;
+/** Hub-initiated keysend repro (channel_issue.md) — asset amount matches the report. */
+export const KEYSEND_REPRO_ASSET_AMOUNT = 30;
 
 export type Role = 'merchant' | 'buyer';
 
@@ -50,6 +71,14 @@ export type Phase =
   | 'a_topup'
   | 'send'
   | 'settle'
+  | 'rc_init'
+  | 'rc_fund'
+  | 'rc_utxos'
+  | 'rc_connect'
+  | 'rc_channel'
+  | 'rc_pay'
+  | 'rc_payback'
+  | 'rc_keysend'
   | 'done'
   | 'error';
 
@@ -68,6 +97,14 @@ export const PHASE_LABELS: Record<Phase, string> = {
   a_topup: 'Top-up',
   send: 'Pay',
   settle: 'Settle',
+  rc_init: 'Init',
+  rc_fund: 'Fund',
+  rc_utxos: 'UTXOs',
+  rc_connect: 'Connect',
+  rc_channel: 'Channel',
+  rc_pay: 'Pay →hub',
+  rc_payback: 'Pay ←hub',
+  rc_keysend: 'Keysend',
   done: 'Done',
   error: 'Error',
 };
@@ -89,6 +126,26 @@ export const PHASES_BUYER: Phase[] = [
   'a_topup',
   'send',
   'settle',
+  'done',
+];
+export const PHASES_REGULAR: Phase[] = [
+  'rc_init',
+  'rc_fund',
+  'rc_utxos',
+  'rc_connect',
+  'rc_channel',
+  'rc_pay',
+  'rc_payback',
+  'done',
+];
+/** Faithful channel_issue.md repro: hub keysend as the FIRST HTLC on a fresh channel. */
+export const PHASES_KEYSEND_REPRO: Phase[] = [
+  'rc_init',
+  'rc_fund',
+  'rc_utxos',
+  'rc_connect',
+  'rc_channel',
+  'rc_keysend',
   'done',
 ];
 
@@ -125,6 +182,14 @@ export async function gatewayFund(
     }),
   });
   if (!r.ok) throw new Error(`gateway /dev/regtest/fund → ${r.status}`);
+}
+
+export async function faucetGet<T = unknown>(path: string): Promise<T> {
+  const r = await fetch(`${FAUCET_API}${path}`);
+  if (!r.ok) {
+    throw new Error(`faucet ${path} → ${r.status}: ${await r.text().catch(() => '')}`);
+  }
+  return (await r.json().catch(() => ({}))) as T;
 }
 
 export async function faucetPost<T = unknown>(
