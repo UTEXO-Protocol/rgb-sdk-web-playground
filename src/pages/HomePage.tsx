@@ -14,26 +14,6 @@ const cards = [
     desc: 'Create an RLN-backed UTEXOWallet — RGB on-chain + Lightning, the full IWalletManager + IUTEXOProtocol surface',
   },
   {
-    to: '/bitcoin',
-    title: 'Bitcoin',
-    desc: 'Send BTC with explicit PSBT signing, faucet funding, fee estimation',
-  },
-  {
-    to: '/rgb-assets',
-    title: 'RGB Assets',
-    desc: 'Issue NIA/IFA, create receive invoices, send assets with PSBT flow',
-  },
-  {
-    to: '/rln-wallet',
-    title: 'RLN Wallet',
-    desc: 'Low-level RlnWalletManager + Lightning node binding (channels, invoices, payments)',
-  },
-  {
-    to: '/rln-flow',
-    title: 'RLN Flow',
-    desc: 'Guided two-party RGB-over-Lightning flow walkthrough',
-  },
-  {
     to: '/lsp-apay',
     title: 'LSP & APay',
     desc: 'APay Cart Checkout — guided merchant+buyer flow — plus utexo-lsp bridge flows and the API reference',

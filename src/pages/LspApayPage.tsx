@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { getDefaultLspBaseUrl } from '@utexo/rgb-sdk-web';
 import type { UTEXOWallet, UtexoLsp, LspPeer } from '@utexo/rgb-sdk-web';
 import { useStore } from '../store';
 import { Section } from '../components/Section';
@@ -290,12 +291,12 @@ export function LspApayPage() {
 
       <Section
         title="1. Create + Connect"
-        hint="UTEXOWallet.createLsp() — leave peer fields blank to auto-discover from the wallet's lspBaseUrl (GET /get_info)."
+        hint="UTEXOWallet.createLsp() — leave peer fields blank to auto-discover from the wallet's lspBaseUrl (GET /get_info), which falls back to the network default (utexo → lsp-signet.utexo.com) when unset."
       >
         {warn}
         <div className="flex gap-4 mb-2 flex-wrap">
           <Field label="LSP Base URL (optional if wallet has lspBaseUrl)">
-            <input value={lspBaseUrl} onChange={(e) => setLspBaseUrl(e.target.value)} className={inputCls} placeholder="https://lsp.utexo.com" />
+            <input value={lspBaseUrl} onChange={(e) => setLspBaseUrl(e.target.value)} className={inputCls} placeholder={(utexo && getDefaultLspBaseUrl(utexo.getNetwork())) || 'https://lsp.utexo.com'} />
           </Field>
           <Field label="Peer Port">
             <input value={peerPort} onChange={(e) => setPeerPort(e.target.value)} className={inputCls} />

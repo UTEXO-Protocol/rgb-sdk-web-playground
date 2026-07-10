@@ -25,11 +25,9 @@ The SDK is **RLN-only** (the old rgb-lib-wasm `WalletManager` stack was removed)
 **Pages** (one route each in `App.tsx`):
 - `KeysPage` — `generateKeys`, `restoreKeys`, `deriveKeysFromMnemonic`, `bip39`
 - `UtexoWalletPage` — **primary**: create + full `UTEXOWallet` surface (RGB on-chain + Lightning), backed by RLN
-- `BitcoinPage` — BTC send (3-step PSBT), faucet funding, fee estimation (operates on the active wallet)
-- `RgbAssetsPage` — issue NIA/IFA, blind/witness receive, send assets; batch-send section requires an RLN Wallet (`RlnWalletManager`)
-- `RlnWalletPage` — low-level `RlnWalletManager` + Lightning node binding (advanced)
-- `RlnFlowGuidePage` — guided two-party RGB-over-Lightning walkthrough
 - `UtexoBackupPage` (`/backup`) — file backup (`createBackup`/`getLastBackupBytes`/`restoreFromBackupBytes`) + VSS
+
+`BitcoinPage`, `RgbAssetsPage`, `RlnWalletPage`, and `RlnFlowGuidePage` were removed — they duplicated `UtexoWalletPage`'s coverage of BTC send, RGB issue/send/receive, and Lightning at the lower `RlnWalletManager`/`IRlnNodeBinding` layer. `UTEXOWallet` does not re-expose `sendBeginBatch`/`sendBatch`/`sendRgbFromGroups` (batch/group RGB send) — use `RlnWalletManager` directly for that if needed.
 
 **Reusable components** worth knowing:
 - `StepFlow.tsx` — 3-step Begin → Sign → Broadcast UI; steps unlock sequentially; has an "Auto" button that runs all 3 at once

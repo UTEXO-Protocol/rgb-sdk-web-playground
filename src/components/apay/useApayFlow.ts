@@ -7,7 +7,7 @@
 //   register = lsp.connect() + enableLightningAddress(); then keepalive
 //   (lsp.connect every 15s + hash-pool auto-refill) and the settle watcher
 //   (buyer's payment hash arrives over BroadcastChannel; verify via
-//   listChannels assetLocalAmount delta + listPaymentsRaw — NOT
+//   listChannels assetLocalAmount delta + listPayments — NOT
 //   getAssetBalance, the wasm wallet db doesn't know channel-pushed RGB).
 // Buyer window:     a_init → a_fund → a_utxos → a_channel → a_topup → send → settle
 //   a_topup = RN parity: lsp.receiveAsset → faucet on-chain RGB send (via the
@@ -82,10 +82,6 @@ export async function clearWalletsAndReload() {
   }
   location.reload();
 }
-
-type PaymentRow = Record<string, unknown>;
-const rowField = <T,>(p: PaymentRow, camel: string, snake: string) =>
-  (p[camel] ?? p[snake]) as T | undefined;
 
 export function useApayFlow(role: Role) {
   const addStoreLog = useStore((s) => s.addLog);
@@ -402,16 +398,12 @@ export function useApayFlow(role: Role) {
         setLocalRgb(nowRgb);
         const delta = nowRgb - baselineRgbRef.current;
 
-        const pays = (await wallet.listPaymentsRaw().catch(() => [])) as PaymentRow[];
-        const mp = pays.find(
-          (p) =>
-            normHash(String(rowField<string>(p, 'paymentHash', 'payment_hash') ?? '')) ===
-            normHash(hash)
-        );
-        const mpStatus = String(mp?.status ?? '').toLowerCase();
+        const pays = await wallet.listPayments().catch(() => []);
+        const mp = pays.find((p) => normHash(p.paymentHash) === normHash(hash));
+        const mpStatus = String(mp?.rawStatus ?? mp?.status ?? '').toLowerCase();
         addLog(
           `watch: channel RGB ${nowRgb} (Δ${delta >= 0 ? '+' : ''}${delta})  inbound=${
-            mp ? `${rowField<string>(mp, 'paymentType', 'payment_type') ?? '?'}/${mp.status}` : 'none'
+            mp ? `${mp.inbound ? 'inbound' : 'outbound'}/${mp.rawStatus ?? mp.status}` : 'none'
           }  buyerSettled=${buyerSettledRef.current}`
         );
 

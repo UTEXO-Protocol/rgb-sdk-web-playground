@@ -6,12 +6,8 @@ import { useStore } from './store';
 import { autoRestore, getSavedActiveWalletId, setUrlWallet } from './lib/session';
 import { HomePage } from './pages/HomePage';
 import { KeysPage } from './pages/KeysPage';
-import { BitcoinPage } from './pages/BitcoinPage';
-import { RgbAssetsPage } from './pages/RgbAssetsPage';
 import { UtexoBackupPage } from './pages/UtexoBackupPage';
 import { UtexoWalletPage } from './pages/UtexoWalletPage';
-import { RlnWalletPage } from './pages/RlnWalletPage';
-import { RlnFlowGuidePage } from './pages/RlnFlowGuidePage';
 import { LspApayPage } from './pages/LspApayPage';
 
 function App() {
@@ -66,12 +62,8 @@ function App() {
         <Routes>
           <Route path="/" element={<HomePage />} />
           <Route path="/keys" element={<KeysPage />} />
-          <Route path="/bitcoin" element={<BitcoinPage />} />
-          <Route path="/rgb-assets" element={<RgbAssetsPage />} />
           <Route path="/backup" element={<UtexoBackupPage />} />
           <Route path="/utexo-wallet" element={<UtexoWalletPage />} />
-          <Route path="/rln-wallet" element={<RlnWalletPage />} />
-          <Route path="/rln-flow" element={<RlnFlowGuidePage />} />
           <Route path="/lsp-apay" element={<LspApayPage />} />
         </Routes>
       </Layout>

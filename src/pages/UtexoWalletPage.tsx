@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { generateKeys, UTEXOWallet } from '@utexo/rgb-sdk-web';
+import { generateKeys, UTEXOWallet, getDefaultLspBaseUrl } from '@utexo/rgb-sdk-web';
 import type { UtexoLsp, LspPeer } from '@utexo/rgb-sdk-web';
 import { useStore } from '../store';
 import type { WalletInstance, WalletConfig } from '../store';
@@ -9,7 +9,7 @@ import { Btn } from '../components/Btn';
 import { OutputBox } from '../components/OutputBox';
 import { StepFlow } from '../components/StepFlow';
 import { useActiveWallet } from '../hooks/useActiveWallet';
-import { json, getIndexerUrl, proxyIndexerUrl, parseAmounts, FAUCET_BASE_URL, FAUCET_TOKEN, UTEXO_FAUCET_URL, faucetSendBtc, gatewayRegtestFund } from '../lib/utils';
+import { json, getIndexerUrl, getRlnTransportEndpoint, getRlnProxyUrl, proxyIndexerUrl, parseAmounts, FAUCET_BASE_URL, FAUCET_TOKEN, UTEXO_FAUCET_URL, faucetSendBtc, gatewayRegtestFund } from '../lib/utils';
 import { saveSessions, setUrlWallet } from '../lib/session';
 import { CFG as REGTEST_LSP_CFG } from '../components/apay/config';
 
@@ -259,14 +259,16 @@ export function UtexoWalletPage() {
       addLog('Creating UTEXOWallet (' + network + ')...', 'info');
       // init() auto-connects — indexer/transport/proxy fall back to the
       // network defaults when the fields are left blank.
-      const inst = new UTEXOWallet({
+      console.log('UTEXOWallet init params', indexerUrl);
+      const params = {
         mnemonic: mnemonic.trim(),
         password,
         network,
         transportEndpoint: transportEndpoint.trim() || undefined,
         proxyUrl: proxyUrl.trim() || undefined,
         indexerUrl: indexerUrl.trim() ? proxyIndexerUrl(indexerUrl.trim()) : undefined,
-      });
+      };
+      const inst = new UTEXOWallet(params);
       await inst.init();
 
       const xpubs = inst.getXpub();
@@ -1145,10 +1147,10 @@ export function UtexoWalletPage() {
           </Field>
         </div>
         <Field label="Transport Endpoint (optional — blank = network default; RGB consignment delivery)">
-          <input value={transportEndpoint} onChange={(e) => setTransportEndpoint(e.target.value)} className={inputCls} placeholder="e.g. http://127.0.0.1:3001/rgb/json-rpc" />
+          <input value={transportEndpoint} onChange={(e) => setTransportEndpoint(e.target.value)} className={inputCls} placeholder={getRlnTransportEndpoint(network) || 'e.g. http://127.0.0.1:3001/rgb/json-rpc'} />
         </Field>
         <Field label="LN Gateway proxyUrl (optional — blank = network default; enables the Lightning node)">
-          <input value={proxyUrl} onChange={(e) => setProxyUrl(e.target.value)} className={inputCls} placeholder="e.g. ws://127.0.0.1:3001" />
+          <input value={proxyUrl} onChange={(e) => setProxyUrl(e.target.value)} className={inputCls} placeholder={getRlnProxyUrl(network) || 'e.g. ws://127.0.0.1:3001'} />
         </Field>
         <Field label="Mnemonic">
           <textarea value={mnemonic} onChange={(e) => setMnemonic(e.target.value)} className={textareaCls} rows={2} placeholder="Enter 12/24-word mnemonic or click Generate" />
@@ -1184,7 +1186,7 @@ export function UtexoWalletPage() {
       <Section id="sec-online" title="2. goOnline()" hint="Retry the indexer connection — init() already auto-connects, so this is only needed if the wallet shows offline.">
         {utexoWarn}
         <Field label="Indexer URL">
-          <input value={indexerUrl} onChange={(e) => setIndexerUrl(e.target.value)} className={inputCls} />
+          <input value={indexerUrl} onChange={(e) => setIndexerUrl(e.target.value)} className={inputCls} placeholder={getIndexerUrl(network)} />
         </Field>
         <Btn variant="accent" onClick={handleGoOnline} disabled={!utexo}>Go Online</Btn>
         <OutputBox value={onlineOut} />
@@ -1609,12 +1611,12 @@ export function UtexoWalletPage() {
       <Section
         id="sec-lsp-connect"
         title="22. Create + Connect"
-        hint="UTEXOWallet.createLsp() — leave peer fields blank to auto-discover from the wallet's lspBaseUrl (GET /get_info). On regtest the fields are prefilled from the local LSP stack config (.env.local)."
+        hint="UTEXOWallet.createLsp() — leave peer fields blank to auto-discover from the wallet's lspBaseUrl (GET /get_info), which falls back to the network default (utexo → lsp-signet.utexo.com) when unset. On regtest the fields are prefilled from the local LSP stack config (.env.local)."
       >
         {utexoWarn}
         <div className="flex gap-4 mb-2 flex-wrap">
           <Field label="LSP Base URL (optional if wallet has lspBaseUrl)">
-            <input value={lspBaseUrl} onChange={(e) => setLspBaseUrl(e.target.value)} className={inputCls} placeholder="https://lsp.utexo.com" />
+            <input value={lspBaseUrl} onChange={(e) => setLspBaseUrl(e.target.value)} className={inputCls} placeholder={(activeUtexoNetwork && getDefaultLspBaseUrl(activeUtexoNetwork)) || 'https://lsp.utexo.com'} />
           </Field>
           <Field label="Peer Port">
             <input value={lspPeerPort} onChange={(e) => setLspPeerPort(e.target.value)} className={inputCls} />
