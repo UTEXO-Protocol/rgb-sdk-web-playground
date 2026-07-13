@@ -10,6 +10,7 @@ import { useActiveWallet } from '../hooks/useActiveWallet';
 import { json } from '../lib/utils';
 import { RegtestLspFlow } from '../components/RegtestLspFlow';
 import { ApayCartCheckout } from '../components/apay/ApayCartCheckout';
+import { ApaySignetCheckout } from '../components/apay/signet/ApaySignetCheckout';
 import { RegularChannelFlow } from '../components/apay/RegularChannelFlow';
 import { KeysendReproFlow } from '../components/apay/KeysendReproFlow';
 
@@ -284,6 +285,8 @@ export function LspApayPage() {
       <RegtestLspFlow />
 
       <ApayCartCheckout />
+
+      <ApaySignetCheckout />
 
       <RegularChannelFlow />
 

@@ -1,4 +1,4 @@
-import { defineConfig } from 'vite';
+import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 import wasm from 'vite-plugin-wasm';
 import topLevelAwait from 'vite-plugin-top-level-await';
@@ -11,7 +11,9 @@ const require = createRequire(import.meta.url);
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-export default defineConfig({
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, __dirname, 'VITE_');
+  return {
   resolve: {
     alias: {
       '@utexo/rgb-sdk-core': path.resolve(__dirname, '../rgb-sdk-core/src/index.ts'),
@@ -66,6 +68,19 @@ export default defineConfig({
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/lsp/, ''),
       },
+      // Hosted signet utexo-lsp (APay UTEXO flow) — same-origin to avoid CORS.
+      '/lsp-signet': {
+        target: env.VITE_SIGNET_LSP_TARGET || 'https://lsp-signet.utexo.com',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/lsp-signet/, ''),
+      },
+      // Signet faucet RLN-node REST (funds BTC, plays the external RGB sender
+      // in the APay UTEXO flow) — set VITE_SIGNET_FAUCET_URL in .env.local.
+      '/faucet-signet': {
+        target: env.VITE_SIGNET_FAUCET_URL || 'http://127.0.0.1:9', // unset → fails fast
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/faucet-signet/, ''),
+      },
     },
     fs: {
       // Allow serving WASM files from sibling local packages
@@ -79,8 +94,9 @@ export default defineConfig({
   },
   optimizeDeps: {
     // Don't pre-bundle — these contain WASM / local file: symlinks
-    exclude: ['@utexo/rgb-sdk-web'],
+    exclude: ['@utexo/rgb-sdk-web', '@utexo/rln-wasm'],
     // Force pre-bundle CJS deps pulled in by excluded packages so named exports work
     include: ['bitcoinjs-lib'],
   },
+  };
 });
