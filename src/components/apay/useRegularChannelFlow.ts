@@ -12,6 +12,7 @@
 import { useCallback, useRef, useState } from 'react';
 import { UTEXOWallet, generateKeys } from '@utexo/rgb-sdk-web';
 import { useStore } from '../../store';
+import { DEMO_VSS_URL } from '../../lib/utils';
 import {
   CFG,
   CHANNEL_TIMEOUT_S,
@@ -253,8 +254,10 @@ export function useRegularChannelFlow(mode: RegularFlowMode = 'full') {
       skipConsistencyCheck: true,
       dataDir: `/regular_${fresh}`,
       nodeRuntimeId: `regular-${fresh}`,
+      vssUrl: DEMO_VSS_URL,
     });
     await wallet.init();
+    await wallet.unlock();
     walletRef.current = wallet;
     tabHasFlowWallet = true;
     if (!wallet.isOnline())

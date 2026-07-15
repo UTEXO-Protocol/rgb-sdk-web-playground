@@ -20,6 +20,23 @@ export const REGTEST_PROXY_HTTP_URL: string =
 export const REGTEST_PROXY_RPC_URL: string =
   (import.meta.env.VITE_REGTEST_PROXY_RPC_URL as string) ?? 'rpc://localhost:3000/json-rpc';
 
+// Local VSS server via the Vite /vss proxy (same-origin — vss-server has no
+// CORS). Written to .env.local by `VSS=1 start-lsp-web.sh`; when unset, VSS is
+// explicitly disabled (`null`) so demo wallets never talk to the prod server.
+
+/** Absolutize a VSS URL. The wasm VSS client (reqwest) rejects relative URLs
+ *  ("relative URL without a base") BEFORE any request is sent — a bare "/vss"
+ *  silently produces zero network traffic. Same-origin absolute form keeps
+ *  the Vite proxy (and CORS-free) behavior. */
+export function resolveVssUrl(url: string | null | undefined): string | null {
+  if (!url) return null;
+  return url.startsWith('/') ? `${window.location.origin}${url}` : url;
+}
+
+export const DEMO_VSS_URL: string | null = resolveVssUrl(
+  import.meta.env.VITE_VSS_URL as string | undefined
+);
+
 export function proxyIndexerUrl(url: string): string {
   return url;
 }

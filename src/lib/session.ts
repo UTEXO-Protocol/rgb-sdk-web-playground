@@ -1,5 +1,5 @@
 import { UTEXOWallet, RlnWalletManager, initRlnWasm } from '@utexo/rgb-sdk-web';
-import { proxyIndexerUrl } from './utils';
+import { proxyIndexerUrl, DEMO_VSS_URL, resolveVssUrl } from './utils';
 import type { WalletInstance, WalletConfig } from '../store';
 
 const SESSION_KEY = 'rgb_wallet_sessions';  // localStorage — shared across tabs
@@ -111,8 +111,14 @@ async function restoreEntry(entry: SessionEntry): Promise<WalletInstance | null>
       transportEndpoint: config.transportEndpoint || undefined,
       nodeRuntimeId: config.nodeRuntimeId || undefined,
       indexerUrl: config.indexerUrl ? proxyIndexerUrl(config.indexerUrl) : undefined,
+      // Restore with the same VSS setting the wallet was created with;
+      // legacy sessions (no vssUrl key) fall back to the local stack default.
+      // resolveVssUrl: saved configs may hold a relative "/vss".
+      vssUrl:
+        config.vssUrl !== undefined ? resolveVssUrl(config.vssUrl) : DEMO_VSS_URL,
     });
     await w.init();
+    await w.unlock();
     if (!w.isOnline()) console.warn('[UTEXO restore] wallet restored OFFLINE (indexer unreachable)');
     return {
       id: entry.id,

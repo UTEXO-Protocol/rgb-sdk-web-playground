@@ -16,6 +16,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { UTEXOWallet, generateKeys, type UtexoLsp } from '@utexo/rgb-sdk-web';
 import { useStore } from '../../store';
+import { DEMO_VSS_URL } from '../../lib/utils';
 import {
   APAY_HASH_REFILL_THRESHOLD,
   BC_NAME,
@@ -242,8 +243,10 @@ export function useApayFlow(role: Role) {
       lspBaseUrl: CFG.lspBaseUrl,
       dataDir: `/apay_${role}_${fresh}`,
       nodeRuntimeId: `apay-${role}-${fresh}`,
+      vssUrl: DEMO_VSS_URL,
     });
     await wallet.init();
+    await wallet.unlock();
     walletRef.current = wallet;
     if (!wallet.isOnline())
       throw new Error(`indexer unreachable at ${CFG.indexer} — is the LSP web stack running?`);

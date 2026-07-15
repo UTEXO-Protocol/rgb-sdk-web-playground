@@ -36,6 +36,9 @@ export interface WalletConfig {
   proxyUrl?: string;
   /** Stable runtime ID for persistent LN node state across page reloads */
   nodeRuntimeId?: string;
+  /** VSS cloud-backup server URL passed to the wallet; null = VSS disabled.
+   *  Undefined (legacy sessions) falls back to DEMO_VSS_URL on restore. */
+  vssUrl?: string | null;
 }
 
 export interface WalletInstance {

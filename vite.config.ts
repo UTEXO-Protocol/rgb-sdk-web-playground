@@ -49,6 +49,14 @@ export default defineConfig(({ mode }) => {
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/bitcoind/, ''),
       },
+      // VSS server (root compose --profile vss, started by VSS=1
+      // start-lsp-web.sh). Same-origin: vss-server has no CORS support, so the
+      // browser must reach it through this proxy. No rewrite — the server
+      // serves under /vss (e.g. /vss/putObject).
+      '/vss': {
+        target: 'http://localhost:8081',
+        changeOrigin: true,
+      },
       // RGB proxy server
       '/proxy': {
         target: 'http://localhost:3000',

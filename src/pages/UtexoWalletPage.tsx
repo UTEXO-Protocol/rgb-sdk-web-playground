@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { generateKeys, UTEXOWallet, getDefaultLspBaseUrl } from '@utexo/rgb-sdk-web';
+import { generateKeys, UTEXOWallet, getDefaultLspBaseUrl, DEFAULT_VSS_SERVER_URL } from '@utexo/rgb-sdk-web';
 import type { UtexoLsp, LspPeer } from '@utexo/rgb-sdk-web';
 import { useStore } from '../store';
 import type { WalletInstance, WalletConfig } from '../store';
@@ -9,7 +9,7 @@ import { Btn } from '../components/Btn';
 import { OutputBox } from '../components/OutputBox';
 import { StepFlow } from '../components/StepFlow';
 import { useActiveWallet } from '../hooks/useActiveWallet';
-import { json, getIndexerUrl, getRlnTransportEndpoint, getRlnProxyUrl, proxyIndexerUrl, parseAmounts, FAUCET_BASE_URL, FAUCET_TOKEN, UTEXO_FAUCET_URL, faucetSendBtc, gatewayRegtestFund } from '../lib/utils';
+import { json, getIndexerUrl, getRlnTransportEndpoint, getRlnProxyUrl, proxyIndexerUrl, parseAmounts, FAUCET_BASE_URL, FAUCET_TOKEN, UTEXO_FAUCET_URL, faucetSendBtc, gatewayRegtestFund, DEMO_VSS_URL, resolveVssUrl } from '../lib/utils';
 import { saveSessions, setUrlWallet } from '../lib/session';
 import { CFG as REGTEST_LSP_CFG } from '../components/apay/config';
 
@@ -29,6 +29,7 @@ const SECTION_NAV = [
     group: 'Onchain',
     items: [
       { id: 'create', label: '1 · Create wallet' },
+      { id: 'unlock', label: '1b · Unlock & VSS' },
       { id: 'online', label: '2 · goOnline' },
       { id: 'info', label: '3 · Wallet info' },
       { id: 'fund', label: '4 · Fund wallet' },
@@ -102,10 +103,18 @@ export function UtexoWalletPage() {
   const [password, setPassword] = useState('demo-password');
   const [transportEndpoint, setTransportEndpoint] = useState('');
   const [proxyUrl, setProxyUrl] = useState('');
+  // Blank semantics follow the network (see the effect below + handleCreate):
+  // on utexo, blank omits vssUrl so the SDK's own default applies
+  // (DEFAULT_VSS_SERVER_URL); elsewhere blank passes null (VSS disabled) and
+  // the prefill is the local stack's VSS ("/vss" via the Vite proxy, written
+  // to .env.local by VSS=1 start-lsp-web.sh).
+  const [vssUrl, setVssUrl] = useState(DEMO_VSS_URL ?? '');
 
   // ── Go Online ─────────────────────────────────────────────────────────────
   const [indexerUrl, setIndexerUrl] = useState(() => getIndexerUrl('regtest'));
   const [onlineOut, setOnlineOut] = useState('');
+  const [unlockOut, setUnlockOut] = useState('');
+  const [unlocking, setUnlocking] = useState(false);
 
   // ── Wallet info ───────────────────────────────────────────────────────────
   const [infoOut, setInfoOut] = useState('');
@@ -203,6 +212,9 @@ export function UtexoWalletPage() {
 
   useEffect(() => {
     setIndexerUrl(getIndexerUrl(network));
+    // utexo is the hosted network — leave the field blank so the SDK's own
+    // VSS default applies; other networks prefill the local dev stack.
+    setVssUrl(network === 'utexo' ? '' : (DEMO_VSS_URL ?? ''));
   }, [network]);
 
   // ── Side navigation ───────────────────────────────────────────────────────
@@ -260,6 +272,14 @@ export function UtexoWalletPage() {
       // init() auto-connects — indexer/transport/proxy fall back to the
       // network defaults when the fields are left blank.
       console.log('UTEXOWallet init params', indexerUrl);
+      // utexo: blank field omits vssUrl → the SDK defaults to its hosted VSS
+      // server (pass null via a literal "off" if you need it disabled there).
+      // Other networks: blank = null = disabled, so dev wallets never touch
+      // the production VSS server by accident.
+      const vssParam =
+        network === 'utexo' && !vssUrl.trim()
+          ? undefined
+          : resolveVssUrl(vssUrl.trim());
       const params = {
         mnemonic: mnemonic.trim(),
         password,
@@ -267,9 +287,10 @@ export function UtexoWalletPage() {
         transportEndpoint: transportEndpoint.trim() || undefined,
         proxyUrl: proxyUrl.trim() || undefined,
         indexerUrl: indexerUrl.trim() ? proxyIndexerUrl(indexerUrl.trim()) : undefined,
+        vssUrl: vssParam,
       };
       const inst = new UTEXOWallet(params);
-      await inst.init();
+      await inst.init(); // LOCKED — the gap before unlock (1b) is the explicit-restore window
 
       const xpubs = inst.getXpub();
       const config: WalletConfig = {
@@ -277,6 +298,9 @@ export function UtexoWalletPage() {
         indexerUrl,
         transportEndpoint: transportEndpoint.trim(),
         proxyUrl: proxyUrl.trim() || undefined,
+        // Store the effective URL: session restore treats a missing vssUrl
+        // key as a legacy session and falls back to DEMO_VSS_URL.
+        vssUrl: vssParam === undefined ? DEFAULT_VSS_SERVER_URL : vssParam,
         masterFingerprint: '',
         xpubVan: xpubs.xpubVan,
         xpubCol: xpubs.xpubCol,
@@ -297,8 +321,8 @@ export function UtexoWalletPage() {
       const nextWallets = [...wallets, w];
       saveSessions(nextWallets, w.id);
       setUrlWallet(w.id);
-      setCreateOut('UTEXOWallet created\nLabel: ' + walletLabel + '\nNetwork: ' + network + '\nOnline: ' + (inst.isOnline() ? 'yes' : 'no — use goOnline() to retry'));
-      addLog('UTEXOWallet "' + walletLabel + '" created', 'ok');
+      setCreateOut('UTEXOWallet created — LOCKED\nLabel: ' + walletLabel + '\nNetwork: ' + network + '\n\nNext: Unlock (section 1b) — configures LDK VSS replication and connects to the indexer.\nRestoring an existing wallet on this fresh profile? Press "Restore from VSS" BEFORE Unlock — restore is explicit, never automatic.');
+      addLog('UTEXOWallet "' + walletLabel + '" created (locked — unlock in 1b)', 'ok');
       setMnemonic('');
       setLabel('');
     } catch (e) {
@@ -316,6 +340,108 @@ export function UtexoWalletPage() {
     const remaining = wallets.filter((w) => w.id !== activeWallet.id);
     saveSessions(remaining, remaining[remaining.length - 1]?.id ?? null);
     addLog('Wallet "' + activeWallet.label + '" removed', 'warn');
+  }
+
+  // ── Unlock & VSS fence (RN-parity lifecycle) ──────────────────────────────
+
+  async function handleUnlock() {
+    if (!utexo) { setUnlockOut('Create or switch to a UTEXOWallet'); return; }
+    setUnlocking(true);
+    try {
+      addLog('unlock(): LDK VSS configure (guarded channel restore) + go-online...', 'info');
+      await utexo.unlock(); // runs once; re-run requires Disable Replication first
+      updateWallet(walletId, { online: utexo.isOnline() });
+      const health = utexo.ldkVssBackupInfo();
+      setUnlockOut(
+        'unlock() done\nOnline: ' + (utexo.isOnline() ? 'yes' : 'no — use goOnline() to retry') +
+        '\nLDK VSS health: ' + (health ? JSON.stringify(health, null, 2) : 'no Lightning node')
+      );
+      addLog('UTEXOWallet unlocked', 'ok');
+    } catch (e) {
+      setUnlockOut('Error: ' + e);
+      addLog('unlock failed: ' + e, 'err');
+    } finally {
+      setUnlocking(false);
+    }
+  }
+
+  function handleDisableReplication() {
+    if (!utexo) { setUnlockOut('Create or switch to a UTEXOWallet'); return; }
+    if (!window.confirm('Stop VSS channel replication and release the fence?\n\nChannel state stays local, but new channel updates will NOT reach the cloud until you Unlock again (which re-enables replication).')) return;
+    try {
+      utexo.disableLdkVssReplication();
+      setUnlockOut('Replication disabled — replicator stopped, fence + Web Lock released (fence release is best-effort/async; Clear Fence covers the race).\nTakeover test on a live wallet: Disable → Clear Fence → Unlock.');
+      addLog('LDK VSS replication disabled', 'ok');
+    } catch (e) {
+      setUnlockOut('Error: ' + e);
+      addLog('disableLdkVssReplication failed: ' + e, 'err');
+    }
+  }
+
+  async function handleClearFence() {
+    if (!utexo) { setUnlockOut('Create or switch to a UTEXOWallet'); return; }
+    if (!window.confirm('Clear the VSS single-writer fence?\n\nOnly if the previous device/profile is GONE FOR GOOD — clearing while it is still running puts two writers on one channel store (fund-loss risk).')) return;
+    try {
+      addLog('vssClearFence(): releasing the stale fence...', 'info');
+      await utexo.vssClearFence(); // identity derived at init(); alias of clearLdkVssFence()
+      setUnlockOut('Fence cleared. Now press Unlock — it claims the fence and, on a fresh device, restores channel state.');
+      addLog('VSS fence cleared', 'ok');
+    } catch (e) {
+      setUnlockOut('Error: ' + e);
+      addLog('vssClearFence failed: ' + e, 'err');
+    }
+  }
+
+  function handleLdkVssHealth() {
+    if (!utexo) { setUnlockOut('Create or switch to a UTEXOWallet'); return; }
+    try {
+      const info = utexo.ldkVssBackupInfo();
+      if (!info) { setUnlockOut('No Lightning node on this wallet (no proxyUrl/transportEndpoint)'); return; }
+      const fenceHeld = !info.configured && /owned by another/.test(info.lastError ?? '');
+      setUnlockOut(
+        JSON.stringify(info, null, 2) +
+        (fenceHeld ? '\n\n⚠️ Fence held by another instance — if that device is gone for good: Disable Replication → Clear Fence → Unlock.' : '')
+      );
+      addLog('LDK VSS health fetched', 'ok');
+    } catch (e) {
+      setUnlockOut('Error: ' + e);
+      addLog('ldkVssBackupInfo failed: ' + e, 'err');
+    }
+  }
+
+  async function handleVssRestoreWallet() {
+    if (!utexo) { setUnlockOut('Create or switch to a UTEXOWallet'); return; }
+    if (!window.confirm('Low-level: force-restore the wallet stream (RGB assets, stock, BDK state) from VSS?\n\nOverwrites local wallet state with the cloud snapshot — prefer "Restore from VSS" (restoreFromVss) in the locked gap.')) return;
+    try {
+      addLog('vssRestoreBackup(): restoring wallet stream from VSS...', 'info');
+      await utexo.vssRestoreBackup(); // uses the identity configured at init()
+      setUnlockOut('Wallet-stream restore complete — assets/UTXOs reloaded from the cloud snapshot.');
+      addLog('VSS wallet-stream restore complete', 'ok');
+    } catch (e) {
+      setUnlockOut('Error: ' + e);
+      addLog('vssRestoreBackup failed: ' + e, 'err');
+    }
+  }
+
+  // Explicit one-call restore — must run in the locked gap (after Create,
+  // before Unlock). Wallet stream restores immediately; channels restore at
+  // the Unlock that follows. Fence takeover is the DEFAULT (wiped/dead old
+  // device); takeoverFence: false keeps the old device's fence.
+  async function handleRlnRestore(takeoverFence: boolean) {
+    if (!utexo) { setUnlockOut('Create or switch to a UTEXOWallet'); return; }
+    const msg = takeoverFence
+      ? 'Restore this wallet from VSS?\n\nOverwrites local wallet state with the cloud snapshot AND takes over the channel-stream fence (default) — only if the previous device/profile is GONE FOR GOOD; two live writers on one channel store risk fund loss.'
+      : 'Restore from VSS WITHOUT taking the fence?\n\nWallet stream restores from the cloud; the channel stream stays with the old device until it releases its fence.';
+    if (!window.confirm(msg)) return;
+    try {
+      addLog('restoreFromVss(): explicit restore' + (takeoverFence ? ' (+ fence takeover, default)' : ' (fence kept)') + '...', 'info');
+      const res = await utexo.restoreFromVss(takeoverFence ? undefined : { takeoverFence: false });
+      setUnlockOut('restoreFromVss() done\n' + JSON.stringify(res, null, 2) + '\n\nNow press Unlock — channel state restores there (guarded), then the wallet goes online.');
+      addLog('restoreFromVss complete (walletRestored=' + res.walletRestored + ')', 'ok');
+    } catch (e) {
+      setUnlockOut('Error: ' + e);
+      addLog('restoreFromVss failed: ' + e, 'err');
+    }
   }
 
   // ── Go Online ─────────────────────────────────────────────────────────────
@@ -767,10 +893,15 @@ export function UtexoWalletPage() {
     if (!utexo) { setChanOut('No UTEXOWallet active'); return; }
     if (!closeChannelId.trim()) { setChanOut('Enter channel ID'); return; }
     try {
-      utexo.closeChannel(closeChannelId.trim(), undefined, closeForce === 'true');
-      setChanOut('Close requested for channel: ' + closeChannelId.trim());
+      // Trusted virtual channels require the peer pubkey on close — resolve it
+      // from the channel list so the button works for both channel kinds.
+      const channelId = closeChannelId.trim();
+      const channels = await utexo.listChannels();
+      const peerPubkey = channels.find((c) => c.channelId === channelId)?.peerPubkey;
+      utexo.closeChannel(channelId, peerPubkey, closeForce === 'true');
+      setChanOut('Close requested for channel: ' + channelId);
       addLog('closeChannel requested', 'ok');
-    } catch (e) { setChanOut('Error: ' + e); }
+    } catch (e) { setChanOut('Error: ' + e); addLog('closeChannel failed: ' + e, 'err'); }
   }
 
   // ── Validate Balance ──────────────────────────────────────────────────────
@@ -1132,7 +1263,7 @@ export function UtexoWalletPage() {
       <GroupHeading>Onchain</GroupHeading>
 
       {/* ── Create Wallet ─────────────────────────────────────────────────── */}
-      <Section id="sec-create" title="1. Create UTEXOWallet" hint="new UTEXOWallet({ mnemonic, password, network, indexerUrl?, transportEndpoint? }) + await init() — auto-connects; URLs default per network when blank">
+      <Section id="sec-create" title="1. Create UTEXOWallet" hint="new UTEXOWallet({ mnemonic, password, network, indexerUrl?, transportEndpoint? }) + await init() — returns LOCKED (no VSS, no indexer). Unlock in section 1b; URLs default per network when blank">
         <div className="flex gap-4 mb-4 flex-wrap">
           <Field label="Network">
             <select value={network} onChange={(e) => setNetwork(e.target.value as UtexoNetwork)} className={selectCls}>
@@ -1152,6 +1283,13 @@ export function UtexoWalletPage() {
         <Field label="LN Gateway proxyUrl (optional — blank = network default; enables the Lightning node)">
           <input value={proxyUrl} onChange={(e) => setProxyUrl(e.target.value)} className={inputCls} placeholder={getRlnProxyUrl(network) || 'e.g. ws://127.0.0.1:3001'} />
         </Field>
+        <Field label={network === 'utexo'
+          ? 'VSS Backup URL (blank = SDK default — the hosted utexo VSS server; auto-backup per op)'
+          : 'VSS Backup URL (blank = disabled; init() auto-backs-up per op + restores a fresh wallet from the cloud)'}>
+          <input value={vssUrl} onChange={(e) => setVssUrl(e.target.value)} className={inputCls} placeholder={network === 'utexo'
+            ? DEFAULT_VSS_SERVER_URL + ' (SDK default)'
+            : '/vss (local, needs VSS=1 start-lsp-web.sh) or ' + DEFAULT_VSS_SERVER_URL} />
+        </Field>
         <Field label="Mnemonic">
           <textarea value={mnemonic} onChange={(e) => setMnemonic(e.target.value)} className={textareaCls} rows={2} placeholder="Enter 12/24-word mnemonic or click Generate" />
         </Field>
@@ -1162,14 +1300,37 @@ export function UtexoWalletPage() {
         <OutputBox value={createOut} />
       </Section>
 
+      {/* ── Unlock & VSS fence ────────────────────────────────────────────── */}
+      <Section
+        id="sec-unlock"
+        title="1b. Restore, Unlock & VSS Fence"
+        hint="Lifecycle: init() (locked) → optional restoreFromVss() → unlock(). Restore is explicit-only — the Restore button installs the cloud wallet snapshot now and takes over the fence (default), channels restore at Unlock (guarded, pre-runtime). Plain Unlock on a fresh profile warns if a cloud backup exists. Fence recovery after unlock: Disable Replication → Clear Fence → Unlock."
+      >
+        {utexoWarn}
+        <div className="flex gap-2 flex-wrap mb-2">
+          <Btn onClick={() => handleRlnRestore(true)} disabled={!utexo}>Restore from VSS (restoreFromVss)</Btn>
+          <Btn variant="secondary" onClick={() => handleRlnRestore(false)} disabled={!utexo}>Restore (keep fence)</Btn>
+          <Btn onClick={handleUnlock} disabled={!utexo || unlocking}>{unlocking ? 'Unlocking...' : 'Unlock'}</Btn>
+          <Btn variant="secondary" onClick={handleLdkVssHealth} disabled={!utexo}>LDK VSS Health</Btn>
+          <Btn variant="secondary" onClick={handleDisableReplication} disabled={!utexo}>Disable Replication</Btn>
+          <Btn variant="danger" onClick={handleClearFence} disabled={!utexo}>Clear Fence (vssClearFence)</Btn>
+          <Btn variant="danger" onClick={handleVssRestoreWallet} disabled={!utexo}>VSS Restore (low-level, wallet stream)</Btn>
+        </div>
+        <OutputBox value={unlockOut} />
+      </Section>
+
       {/* ── Active Wallet Info ────────────────────────────────────────────── */}
       {activeWallet?.type === 'utexo' && (
         <Section title={'Active: ' + activeWallet.label}>
           <div className="bg-[#161b22] border border-[#30363d] rounded p-4 font-mono text-xs leading-relaxed space-y-1 mb-4">
             <div><span className="text-[#8b949e]">network:</span> <span className="text-[#c9d1d9]">{activeWallet.config.network}</span></div>
             <div><span className="text-[#8b949e]">online:</span> <span className={activeWallet.online ? 'text-[#3fb950]' : 'text-[#484f58]'}>{activeWallet.online ? 'yes' : 'no'}</span></div>
-            {activeWallet.config.indexerUrl && (
-              <div><span className="text-[#8b949e]">indexer:</span> <span className="text-[#c9d1d9]">{activeWallet.config.indexerUrl}</span></div>
+            <div><span className="text-[#8b949e]">indexer:</span> <span className="text-[#c9d1d9]">{activeWallet.config.indexerUrl || getIndexerUrl(activeWallet.config.network) + ' (network default)'}</span></div>
+            <div><span className="text-[#8b949e]">transport:</span> <span className="text-[#c9d1d9]">{activeWallet.config.transportEndpoint || (getRlnTransportEndpoint(activeWallet.config.network) ? getRlnTransportEndpoint(activeWallet.config.network) + ' (network default)' : 'none')}</span></div>
+            <div><span className="text-[#8b949e]">proxy (LN):</span> <span className="text-[#c9d1d9]">{activeWallet.config.proxyUrl || (getRlnProxyUrl(activeWallet.config.network) ? getRlnProxyUrl(activeWallet.config.network) + ' (network default)' : 'none — no Lightning node')}</span></div>
+            <div><span className="text-[#8b949e]">vss:</span> {activeWallet.config.vssUrl ? <span className="text-[#3fb950]">{activeWallet.config.vssUrl} (auto-backup on)</span> : <span className="text-[#484f58]">disabled</span>}</div>
+            {activeWallet.config.nodeRuntimeId && (
+              <div><span className="text-[#8b949e]">runtimeId:</span> <span className="text-[#c9d1d9]">{activeWallet.config.nodeRuntimeId}</span></div>
             )}
             <div className="pt-1">
               <button onClick={() => setShowMnemonic((v) => !v)} className="text-[#8b949e] hover:text-[#58a6ff] text-xs underline">
@@ -1183,7 +1344,7 @@ export function UtexoWalletPage() {
       )}
 
       {/* ── Go Online ─────────────────────────────────────────────────────── */}
-      <Section id="sec-online" title="2. goOnline()" hint="Retry the indexer connection — init() already auto-connects, so this is only needed if the wallet shows offline.">
+      <Section id="sec-online" title="2. goOnline()" hint="Retry the indexer connection — unlock() (section 1b) already auto-connects, so this is only needed if the wallet shows offline.">
         {utexoWarn}
         <Field label="Indexer URL">
           <input value={indexerUrl} onChange={(e) => setIndexerUrl(e.target.value)} className={inputCls} placeholder={getIndexerUrl(network)} />
@@ -1510,7 +1671,7 @@ export function UtexoWalletPage() {
       </Section>
 
       {/* ── LN Channels ───────────────────────────────────────────────────── */}
-      <Section id="sec-ln-channels" title="18. Channels" hint="openChannel({ peerPubkey, capacitySat, isPublic, assetId?, assetLocalAmount? }) · listChannels · closeChannel(channelId, force?)">
+      <Section id="sec-ln-channels" title="18. Channels" hint="openChannel({ peerPubkey, capacitySat, isPublic, assetId?, assetLocalAmount? }) · listChannels · closeChannel(channelId, peerPubkey?, force?)">
         {utexoWarn}
         <div className="flex gap-4 mb-2 flex-wrap">
           <Field label="Peer pubkey">

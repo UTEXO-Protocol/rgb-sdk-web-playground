@@ -5,6 +5,7 @@ import {
   type UtexoLsp,
 } from '@utexo/rgb-sdk-web';
 import { useStore } from '../store';
+import { DEMO_VSS_URL } from '../lib/utils';
 import { Section } from './Section';
 import { Field, inputCls } from './Field';
 import { Btn } from './Btn';
@@ -146,8 +147,10 @@ export function RegtestLspFlow() {
       lspBaseUrl: CFG.lspBaseUrl,
       dataDir: `/rln_${r}_${fresh}`,
       nodeRuntimeId: `web-${r}-${fresh}`,
+      vssUrl: DEMO_VSS_URL,
     });
     await wallet.init();
+    await wallet.unlock();
     walletRef.current = wallet;
     if (!wallet.isOnline())
       throw new Error(`indexer unreachable at ${CFG.indexer} — is the LSP web stack running?`);

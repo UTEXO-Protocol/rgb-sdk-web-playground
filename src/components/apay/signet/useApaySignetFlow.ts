@@ -13,6 +13,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { UTEXOWallet, generateKeys, type UtexoLsp } from '@utexo/rgb-sdk-web';
 import { useStore } from '../../../store';
+import { DEMO_VSS_URL } from '../../../lib/utils';
 import {
   normHash,
   short,
@@ -258,8 +259,10 @@ export function useApaySignetFlow(role: Role) {
       transportEndpoint: SIG.transportEndpoint,
       dataDir: `/apay_sig_${role}_${fresh}`,
       nodeRuntimeId: `apay-signet-${role}-${fresh}`,
+      vssUrl: DEMO_VSS_URL,
     });
     await wallet.init();
+    await wallet.unlock();
     walletRef.current = wallet;
     if (!wallet.isOnline())
       throw new Error('signet indexer unreachable — check the network / SDK defaults');
