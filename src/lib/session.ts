@@ -1,5 +1,5 @@
-import { deriveKeysFromMnemonic, WalletManager, UTEXOWallet } from '@utexo/rgb-sdk-web';
-import { proxyIndexerUrl } from './utils';
+import { UTEXOWallet, RlnWalletManager, initRlnWasm } from '@utexo/rgb-sdk-web';
+import { proxyIndexerUrl, DEMO_VSS_URL, resolveVssUrl } from './utils';
 import type { WalletInstance, WalletConfig } from '../store';
 
 const SESSION_KEY = 'rgb_wallet_sessions';  // localStorage — shared across tabs
@@ -8,7 +8,7 @@ const ACTIVE_KEY = 'rgb_active_wallet_id';  // sessionStorage — per-tab
 interface SessionEntry {
   id: string;
   label: string;
-  type: 'manager' | 'utexo';
+  type: 'utexo' | 'rln';
   config: WalletConfig;
 }
 
@@ -95,48 +95,74 @@ export async function autoRestore(): Promise<RestoreResult> {
 async function restoreEntry(entry: SessionEntry): Promise<WalletInstance | null> {
   const { type, config } = entry;
 
-  if (type === 'manager') {
-    const keys = await deriveKeysFromMnemonic(config.network, config.mnemonic);
-    const m = await WalletManager.create({
-      mnemonic: config.mnemonic,
-      xpubVan: keys.accountXpubVanilla,
-      xpubCol: keys.accountXpubColored,
-      masterFingerprint: keys.masterFingerprint,
-      network: config.network,
-      indexerUrl: config.indexerUrl ? proxyIndexerUrl(config.indexerUrl) : undefined,
-      transportEndpoint: config.transportEndpoint || undefined,
-      reuseAddresses: config.reuseAddresses,
-    });
-    if (config.indexerUrl) {
-      try { await m.goOnline(proxyIndexerUrl(config.indexerUrl)); } catch {}
-    }
-    return {
-      id: entry.id,
-      label: entry.label,
-      type: 'manager',
-      config,
-      instance: m,
-      online: !!config.indexerUrl,
-    };
-  }
-
   if (type === 'utexo') {
-    const preset =
-      config.network === 'mainnet' || config.network === 'testnet'
-        ? config.network
-        : 'testnet';
-    const w = new UTEXOWallet(config.mnemonic, { network: preset as 'mainnet' | 'testnet' });
-    await w.initialize();
-    if (config.indexerUrl) {
-      try { await w.goOnline(proxyIndexerUrl(config.indexerUrl)); } catch {}
+    if (!config.password) {
+      console.warn('[UTEXO restore] skipping — no password in config');
+      return null; // RLN-backed UTEXOWallet needs the SDK password
     }
+    await initRlnWasm();
+    // init() auto-connects (non-fatal): indexerUrl falls back to the
+    // network default when none was saved.
+    const w = new UTEXOWallet({
+      mnemonic: config.mnemonic,
+      password: config.password,
+      network: config.network,
+      proxyUrl: config.proxyUrl || undefined,
+      transportEndpoint: config.transportEndpoint || undefined,
+      nodeRuntimeId: config.nodeRuntimeId || undefined,
+      indexerUrl: config.indexerUrl ? proxyIndexerUrl(config.indexerUrl) : undefined,
+      // Restore with the same VSS setting the wallet was created with;
+      // legacy sessions (no vssUrl key) fall back to the local stack default.
+      // resolveVssUrl: saved configs may hold a relative "/vss".
+      vssUrl:
+        config.vssUrl !== undefined ? resolveVssUrl(config.vssUrl) : DEMO_VSS_URL,
+    });
+    await w.init();
+    await w.unlock();
+    if (!w.isOnline()) console.warn('[UTEXO restore] wallet restored OFFLINE (indexer unreachable)');
     return {
       id: entry.id,
       label: entry.label,
       type: 'utexo',
       config,
       instance: w,
-      online: !!config.indexerUrl,
+      online: w.isOnline(),
+    };
+  }
+
+  if (type === 'rln') {
+    console.log('[RLN restore] entry:', entry.id, entry.label, 'network:', config.network, 'hasPassword:', !!config.password);
+    if (!config.password) {
+      console.warn('[RLN restore] skipping — no password in config');
+      return null; // can't restore without password
+    }
+    await initRlnWasm();
+    console.log('[RLN restore] initRlnWasm ok, calling RlnWalletManager.create...');
+    let m: Awaited<ReturnType<typeof RlnWalletManager.create>>;
+    try {
+      // create() auto-connects (non-fatal): indexerUrl falls back to the
+      // network default when none was saved.
+      m = await RlnWalletManager.create({
+        mnemonic: config.mnemonic,
+        password: config.password,
+        network: config.network,
+        proxyUrl: config.proxyUrl || undefined,
+        transportEndpoint: config.transportEndpoint || undefined,
+        nodeRuntimeId: config.nodeRuntimeId || undefined,
+        indexerUrl: config.indexerUrl ? proxyIndexerUrl(config.indexerUrl) : undefined,
+      });
+      console.log('[RLN restore] RlnWalletManager.create ok, online:', m.isOnline());
+    } catch (e) {
+      console.error('[RLN restore] RlnWalletManager.create FAILED:', String(e));
+      throw e;
+    }
+    return {
+      id: entry.id,
+      label: entry.label,
+      type: 'rln',
+      config,
+      instance: m,
+      online: m.isOnline(),
     };
   }
 

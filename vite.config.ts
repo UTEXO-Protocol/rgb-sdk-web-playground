@@ -1,4 +1,4 @@
-import { defineConfig } from 'vite';
+import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 import wasm from 'vite-plugin-wasm';
 import topLevelAwait from 'vite-plugin-top-level-await';
@@ -16,7 +16,9 @@ const localAliases = fs.existsSync(localRgbSdkCorePath)
   ? { '@utexo/rgb-sdk-core': localRgbSdkCorePath }
   : {};
 
-export default defineConfig({
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, __dirname, 'VITE_');
+  return {
   resolve: {
     // Use local sibling core package only when it exists (local monorepo dev).
     // In CI/Docker this path does not exist, so Vite should resolve from npm package.
@@ -45,11 +47,20 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      // bitcoind RPC (regtest mine/fund)
+      // bitcoind RPC (regtest mine/fund) — the compose.wasm.yaml esplora
+      // container's bitcoind, host-mapped on 18444 (see start-lsp-web.sh).
       '/bitcoind': {
-        target: 'http://localhost:18443',
+        target: 'http://localhost:18444',
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/bitcoind/, ''),
+      },
+      // VSS server (root compose --profile vss, started by VSS=1
+      // start-lsp-web.sh). Same-origin: vss-server has no CORS support, so the
+      // browser must reach it through this proxy. No rewrite — the server
+      // serves under /vss (e.g. /vss/putObject).
+      '/vss': {
+        target: 'http://localhost:8081',
+        changeOrigin: true,
       },
       // RGB proxy server
       '/proxy': {
@@ -63,21 +74,42 @@ export default defineConfig({
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/esplora/, ''),
       },
+      // utexo-lsp HTTP API (LSP/APay flows) — same-origin to avoid CORS.
+      // VITE_LSP_BASE_URL="/lsp" (written by scripts/start-lsp-web.sh).
+      '/lsp': {
+        target: 'http://127.0.0.1:8080',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/lsp/, ''),
+      },
+      // Hosted signet utexo-lsp (APay UTEXO flow) — same-origin to avoid CORS.
+      '/lsp-signet': {
+        target: env.VITE_SIGNET_LSP_TARGET || 'https://lsp-signet.utexo.com',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/lsp-signet/, ''),
+      },
+      // Signet faucet RLN-node REST (funds BTC, plays the external RGB sender
+      // in the APay UTEXO flow) — set VITE_SIGNET_FAUCET_URL in .env.local.
+      '/faucet-signet': {
+        target: env.VITE_SIGNET_FAUCET_URL || 'http://127.0.0.1:9', // unset → fails fast
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/faucet-signet/, ''),
+      },
     },
     fs: {
       // Allow serving WASM files from sibling local packages
       allow: [
         path.resolve(__dirname),
         path.resolve(__dirname, '../rgb-sdk-web'),
-        path.resolve(__dirname, '../rgb-lib-wasm'),
         path.resolve(__dirname, '../rgb-sdk-core'),
+        path.resolve(__dirname, '../../utexo/rgb-lightning-node/bindings/wasm-sdk/pkg'),
       ],
     },
   },
   optimizeDeps: {
     // Don't pre-bundle — these contain WASM / local file: symlinks
-    exclude: ['@utexo/rgb-sdk-web', '@utexo/rgb-lib-wasm'],
+    exclude: ['@utexo/rgb-sdk-web', '@utexo/rln-wasm'],
     // Force pre-bundle CJS deps pulled in by excluded packages so named exports work
     include: ['bitcoinjs-lib'],
   },
+  };
 });

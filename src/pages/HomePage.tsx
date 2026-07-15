@@ -9,24 +9,19 @@ const cards = [
     desc: 'Generate keys, restore from mnemonic, derive extended keys, validate with bip39',
   },
   {
-    to: '/wallet',
-    title: 'Wallet',
-    desc: 'Create WalletManager or UTEXOWallet instances — switch between multiple wallets, view config params',
+    to: '/utexo-wallet',
+    title: 'UTXO Wallet',
+    desc: 'Create an RLN-backed UTEXOWallet — RGB on-chain + Lightning, the full IWalletManager + IUTEXOProtocol surface',
   },
   {
-    to: '/bitcoin',
-    title: 'Bitcoin',
-    desc: 'Send BTC with explicit PSBT signing, faucet funding, fee estimation',
-  },
-  {
-    to: '/rgb-assets',
-    title: 'RGB Assets',
-    desc: 'Issue NIA/IFA, create receive invoices, send assets with PSBT flow',
+    to: '/lsp-apay',
+    title: 'LSP & APay',
+    desc: 'APay Cart Checkout — guided merchant+buyer flow — plus utexo-lsp bridge flows and the API reference',
   },
   {
     to: '/backup',
     title: 'Backup & Restore',
-    desc: 'File backup (bytes), UTEXOWallet dual backup, VSS cloud backup/restore',
+    desc: 'Encrypted file backup (createBackup / restoreFromBackupBytes) and VSS cloud backup',
   },
 ];
 

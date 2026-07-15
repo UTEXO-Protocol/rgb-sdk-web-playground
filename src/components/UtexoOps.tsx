@@ -177,19 +177,19 @@ export function UtexoOps({ utexo, walletId, network }: Props) {
 
   async function handleGetPubKeys() {
     try {
-      addLog('Getting public keys...', 'info');
-      const result = await utexo.getPubKeys();
+      addLog('Getting account xpubs...', 'info');
+      const result = utexo.getXpub();
       setPubKeysOut(json(result));
-      addLog('Public keys retrieved', 'ok');
+      addLog('Account xpubs retrieved', 'ok');
     } catch (e) { setPubKeysOut('Error: ' + e); }
   }
 
   async function handleDerivePublicKeys() {
     try {
-      addLog('Deriving public keys for ' + deriveNetwork + '...', 'info');
-      const result = await utexo.derivePublicKeys(deriveNetwork as any);
+      addLog('Reading wallet network + xpubs...', 'info');
+      const result = { network: utexo.getNetwork(), ...utexo.getXpub() };
       setPubKeysOut(json(result));
-      addLog('Keys derived', 'ok');
+      addLog('Keys read', 'ok');
     } catch (e) { setPubKeysOut('Error: ' + e); }
   }
 
@@ -230,7 +230,7 @@ export function UtexoOps({ utexo, walletId, network }: Props) {
   async function handleOnchainSendEnd() {
     if (!onchainSignedPsbt) { setOnchainOut('Sign PSBT first'); return; }
     addLog('onchainSendEnd...', 'info');
-    const result = await utexo.onchainSendEnd({ signedPsbt: onchainSignedPsbt, invoice: onchainInvoice.trim() });
+    const result = await utexo.onchainSendEnd({ signedPsbt: onchainSignedPsbt });
     setOnchainPendingPsbt(null); setOnchainSignedPsbt(null);
     setOnchainOut('Result:\n' + json(result));
     addLog('Onchain send complete', 'ok');
@@ -299,7 +299,7 @@ export function UtexoOps({ utexo, walletId, network }: Props) {
   async function handlePayLnEnd() {
     if (!lnSignedPsbt) { setLnOut('Sign PSBT first'); return; }
     addLog('payLightningInvoiceEnd...', 'info');
-    const result = await utexo.payLightningInvoiceEnd({ signedPsbt: lnSignedPsbt, lnInvoice: lnInvoice.trim() });
+    const result = await utexo.payLightningInvoiceEnd({ signedPsbt: lnSignedPsbt });
     setLnPendingPsbt(null); setLnSignedPsbt(null);
     setLnOut('Result:\n' + json(result));
     addLog('LN pay complete', 'ok');
@@ -337,8 +337,13 @@ export function UtexoOps({ utexo, walletId, network }: Props) {
     if (!validateAssetId.trim() || !validateAmount) { setValidateOut('Enter asset ID and amount'); return; }
     try {
       addLog('Validating balance...', 'info');
-      await utexo.validateBalance(validateAssetId.trim(), parseInt(validateAmount));
-      setValidateOut('Balance valid — spendable >= ' + validateAmount);
+      const bal = await utexo.getAssetBalance(validateAssetId.trim());
+      const spendable = bal.spendable ?? 0;
+      const need = parseInt(validateAmount);
+      if (spendable < need) {
+        throw new Error('insufficient spendable balance: ' + spendable + ' < ' + need);
+      }
+      setValidateOut('Balance valid — spendable ' + spendable + ' >= ' + validateAmount);
       addLog('Balance valid', 'ok');
     } catch (e) {
       setValidateOut('Validation failed: ' + e);
@@ -349,7 +354,7 @@ export function UtexoOps({ utexo, walletId, network }: Props) {
   return (
     <>
       {/* Go Online */}
-      <Section title="Go Online" hint="Connect to an Esplora indexer. Note: UTEXOWallet.goOnline() may not be fully implemented.">
+      <Section title="Go Online" hint="Retry the indexer connection — create() already auto-connects (idempotent no-op when online).">
         <Field label="Indexer URL">
           <input value={indexerUrl} onChange={(e) => setIndexerUrl(e.target.value)} className={inputCls} />
         </Field>
