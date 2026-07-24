@@ -1,4 +1,5 @@
 import { UTEXOWallet, RlnWalletManager, initRlnWasm } from '@utexo/rgb-sdk-web';
+import type { BitcoinNetwork } from '@utexo/rgb-sdk-core';
 import { proxyIndexerUrl, DEMO_VSS_URL, resolveVssUrl } from './utils';
 import type { WalletInstance, WalletConfig } from '../store';
 
@@ -106,7 +107,7 @@ async function restoreEntry(entry: SessionEntry): Promise<WalletInstance | null>
     const w = new UTEXOWallet({
       mnemonic: config.mnemonic,
       password: config.password,
-      network: config.network,
+      network: config.network as BitcoinNetwork,
       proxyUrl: config.proxyUrl || undefined,
       transportEndpoint: config.transportEndpoint || undefined,
       nodeRuntimeId: config.nodeRuntimeId || undefined,
@@ -145,7 +146,7 @@ async function restoreEntry(entry: SessionEntry): Promise<WalletInstance | null>
       m = await RlnWalletManager.create({
         mnemonic: config.mnemonic,
         password: config.password,
-        network: config.network,
+        network: config.network as BitcoinNetwork,
         proxyUrl: config.proxyUrl || undefined,
         transportEndpoint: config.transportEndpoint || undefined,
         nodeRuntimeId: config.nodeRuntimeId || undefined,

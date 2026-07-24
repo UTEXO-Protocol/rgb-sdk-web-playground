@@ -90,7 +90,26 @@ export function RegularChannelFlow() {
         <Btn variant="primary" onClick={flow.runCloseChannel} disabled={!flow.canRepro}>
           {flow.closeRunning ? 'Closing…' : 'Close channel & settle on-chain'}
         </Btn>
+        <Btn variant="danger" onClick={flow.runWalletFundedOpen} disabled={!flow.canFund}>
+          {flow.fundingRunning
+            ? 'Funding…'
+            : `Wallet-funded open (${flow.fundWarm ? 'warm' : 'COLD'})`}
+        </Btn>
       </div>
+      <p className="text-xs text-[#8b949e] mb-3">
+        <b>Wallet-funded open</b> inverts the topology: the <i>wasm</i> node opens a channel to{' '}
+        <code>regular_web</code> (the daemon without <code>--enable-virtual-channels-v0</code>, the
+        only peer that accepts a browser-initiated open) and the app funds it itself via
+        buildLightningFundingTx → submitFundingTransaction. Known to stall at «pending awaiting
+        funding lock-in». When the funding tx never reaches the indexer, the run POSTs the identical
+        hex to esplora directly — if esplora accepts it the tx was always valid and our broadcast
+        path is the bug; if esplora rejects it, the tx itself is wrong.
+        {' '}
+        <b>COLD vs warm is the experiment:</b> clicked first in a fresh tab it bootstraps its own
+        wallet (create → fund → sync, no createUtxos, no payments) and opens immediately; clicked
+        after the main flow the BDK view is warm. If cold fails and warm passes, stale-view input
+        selection (§6.0l) is confirmed.
+      </p>
       <p className="text-xs text-[#8b949e] mb-3">
         Keysend tests (channel_issue.md), available after the flow completes — same channel, same
         amounts ({KEYSEND_REPRO_ASSET_AMOUNT} RGB), no invoice. wasm → hub settles normally;
@@ -177,19 +196,65 @@ export function RegularChannelFlow() {
           style={
             flow.closeOutcome.kind === 'settled'
               ? { borderColor: '#3fb950', color: '#3fb950', backgroundColor: '#3fb95010' }
-              : flow.closeOutcome.kind === 'partial'
-                ? { borderColor: '#d29922', color: '#d29922', backgroundColor: '#d2992210' }
-                : { borderColor: '#f85149', color: '#f85149', backgroundColor: '#f8514910' }
+              : { borderColor: '#f85149', color: '#f85149', backgroundColor: '#f8514910' }
           }
         >
           <div className="font-bold mb-1">
             {flow.closeOutcome.kind === 'settled'
-              ? '✓ Channel closed — split settled on-chain'
+              ? '✓ Channel closed — split settled on-chain (both sides)'
               : flow.closeOutcome.kind === 'partial'
-                ? '⚠ Closed — hub settled on-chain; wasm sweep not implemented'
+                ? '✗ Only the hub settled — the wasm post-close sweep did not land'
                 : 'Close / on-chain settle incomplete'}
           </div>
           {flow.closeOutcome.detail}
+        </div>
+      )}
+
+      {flow.funding && (
+        <InfoCard
+          title="Wallet-funded open (wasm → regular_web)"
+          accent="#d29922"
+          rows={[
+            ['temporary channel id', short(flow.funding.temporaryChannelId, 32)],
+            ['capacity', `${flow.funding.channelValueSat} sat`],
+            ['funding txid', flow.funding.txid],
+            [
+              'SDK broadcast',
+              flow.funding.sdkBroadcast === null
+                ? 'checking…'
+                : flow.funding.sdkBroadcast
+                  ? 'indexer saw it ✓'
+                  : 'indexer never saw it ✗',
+            ],
+            ...(flow.funding.probe
+              ? [['esplora POST /tx', flow.funding.probe] as [string, string]]
+              : []),
+          ]}
+        />
+      )}
+      {flow.fundingOutcome && (
+        <div
+          className="border rounded-lg p-4 mb-3 text-sm"
+          style={
+            flow.fundingOutcome.kind === 'ready'
+              ? { borderColor: '#3fb950', color: '#3fb950', backgroundColor: '#3fb95010' }
+              : flow.fundingOutcome.kind === 'inconclusive'
+                ? { borderColor: '#8b949e', color: '#8b949e', backgroundColor: '#8b949e10' }
+                : { borderColor: '#f85149', color: '#f85149', backgroundColor: '#f8514910' }
+          }
+        >
+          <div className="font-bold mb-1">
+            {flow.fundingOutcome.kind === 'ready'
+              ? '✓ Wallet-funded channel ready'
+              : flow.fundingOutcome.kind === 'broadcast_broken'
+                ? '✗ SDK broadcast path is the bug (tx was valid)'
+                : flow.fundingOutcome.kind === 'tx_invalid'
+                  ? '✗ Funding transaction itself is invalid'
+                  : flow.fundingOutcome.kind === 'stalled'
+                    ? '✗ Tx published, channel never locked in'
+                    : 'Wallet-funded open inconclusive'}
+          </div>
+          {flow.fundingOutcome.detail}
         </div>
       )}
 

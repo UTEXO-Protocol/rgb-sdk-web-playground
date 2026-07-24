@@ -157,7 +157,7 @@ export function useApayFlow(role: Role) {
           buyerSettledRef.current = false;
           addLog(`buyer payment hash received: ${short(m.paymentHash)} — watching settlement`);
         }
-        if (m.status === 'Settled') buyerSettledRef.current = true;
+        if (m.status === 'Succeeded') buyerSettledRef.current = true;
         setOtherStatus(`buyer payment: ${m.status}`);
       } else if (m.type === 'verdict' && role === 'buyer') {
         setCheckout({ ok: m.ok, soft: m.soft, detail: m.detail });
@@ -403,10 +403,10 @@ export function useApayFlow(role: Role) {
 
         const pays = await wallet.listPayments().catch(() => []);
         const mp = pays.find((p) => normHash(p.paymentHash) === normHash(hash));
-        const mpStatus = String(mp?.rawStatus ?? mp?.status ?? '').toLowerCase();
+        const mpStatus = String(mp?.status ?? '').toLowerCase();
         addLog(
           `watch: channel RGB ${nowRgb} (Δ${delta >= 0 ? '+' : ''}${delta})  inbound=${
-            mp ? `${mp.inbound ? 'inbound' : 'outbound'}/${mp.rawStatus ?? mp.status}` : 'none'
+            mp ? `${mp.inbound ? 'inbound' : 'outbound'}/${mp.status}` : 'none'
           }  buyerSettled=${buyerSettledRef.current}`
         );
 
@@ -611,7 +611,7 @@ export function useApayFlow(role: Role) {
     post({ type: 'payment', paymentHash: pHash, status: sendResult.status ?? 'Pending' });
     addLog('Cart paid — HTLC held at LSP, waiting for outbox settlement…', 'success');
 
-    // Poll until Settled — each getLightningSendRequest poll also drives the
+    // Poll until Settled — each getLightningSendStatus poll also drives the
     // wasm node's queued RGB work (HTLC/commitment coloring).
     setPhase('settle');
     const settleDeadline = Date.now() + SETTLE_TIMEOUT_S * 1000;
@@ -620,14 +620,14 @@ export function useApayFlow(role: Role) {
       checkAbort();
       await gatewayFund(address, 0.001, 1).catch(() => {});
       await sleep(POLL_INTERVAL_MS);
-      payStatus = await wallet.getLightningSendRequest(pHash);
+      payStatus = await wallet.getLightningSendStatus(pHash);
       setSendStatus(payStatus ?? 'Pending');
       post({ type: 'payment', paymentHash: pHash, status: payStatus ?? 'Pending' });
-      addLog(`  getLightningSendRequest: ${payStatus ?? 'Pending'}`);
-      if (payStatus === 'Settled' || payStatus === 'Failed') break;
+      addLog(`  getLightningSendStatus: ${payStatus ?? 'Pending'}`);
+      if (payStatus === 'Succeeded' || payStatus === 'Failed') break;
     }
     if (payStatus === 'Failed') throw new Error('buyer payment Failed during LSP settlement');
-    if (payStatus !== 'Settled') {
+    if (payStatus !== 'Succeeded') {
       throw new Error('Timeout — payment did not settle; ensure the Merchant window stays open.');
     }
 

@@ -12,13 +12,18 @@
 import { useCallback, useRef, useState } from 'react';
 import { UTEXOWallet, generateKeys } from '@utexo/rgb-sdk-web';
 import { useStore } from '../../store';
-import { DEMO_VSS_URL } from '../../lib/utils';
+import { DEMO_VSS_URL, mineBlocks } from '../../lib/utils';
 import {
   CFG,
   CHANNEL_TIMEOUT_S,
   FAUCET_LDK_PORT,
+  FUNDING_BROADCAST_TIMEOUT_S,
+  FUNDING_CAPACITY_SAT,
+  FUNDING_READY_TIMEOUT_S,
   KEYSEND_REPRO_ASSET_AMOUNT,
   POLL_INTERVAL_MS,
+  REGULAR_LDK_PORT,
+  REGULAR_PUBKEY,
   REGULAR_CHANNEL_ASSET_AMOUNT,
   REGULAR_CHANNEL_CAPACITY_SAT,
   REGULAR_CHANNEL_PUSH_ASSET_AMOUNT,
@@ -30,6 +35,8 @@ import {
   faucetGet,
   faucetPost,
   gatewayFund,
+  indexerBroadcast,
+  indexerTxSeen,
   short,
   sleep,
   type LogEntry,
@@ -64,6 +71,32 @@ export interface ReproOutcome {
 export interface CloseOutcome {
   kind: 'settled' | 'partial' | 'incomplete';
   detail: string;
+}
+
+/**
+ * Outcome of the wallet-funded open repro (§6.0s).
+ *
+ * The three middle kinds are the whole point: when the channel does not become
+ * ready, they say *which* half is at fault instead of leaving it open.
+ *   - `broadcast_broken` — esplora accepted the hex the SDK failed to publish
+ *   - `tx_invalid`       — esplora rejected it too; the tx itself is wrong
+ *   - `stalled`          — tx is in the mempool, channel still never locks in
+ */
+export interface FundingOutcome {
+  kind: 'ready' | 'broadcast_broken' | 'tx_invalid' | 'stalled' | 'inconclusive';
+  detail: string;
+}
+
+/** What the wallet-funded open produced, step by step. */
+export interface FundingInfo {
+  temporaryChannelId: string;
+  counterpartyNodeId: string;
+  channelValueSat: number;
+  txid: string;
+  /** Did the indexer see the tx from the SDK's own broadcast path? */
+  sdkBroadcast: boolean | null;
+  /** Verbatim esplora reply to the independent POST /tx, when we had to probe. */
+  probe?: string;
 }
 
 /** On-chain balances observed after the cooperative close. */
@@ -126,6 +159,9 @@ export function useRegularChannelFlow(mode: RegularFlowMode = 'full') {
   const [closeRunning, setCloseRunning] = useState(false);
   const [closeOutcome, setCloseOutcome] = useState<CloseOutcome | null>(null);
   const [onchain, setOnchain] = useState<OnchainSettle | null>(null);
+  const [funding, setFunding] = useState<FundingInfo | null>(null);
+  const [fundingOutcome, setFundingOutcome] = useState<FundingOutcome | null>(null);
+  const [fundingRunning, setFundingRunning] = useState(false);
 
   const walletRef = useRef<UTEXOWallet | null>(null);
   const hubPubkeyRef = useRef('');
@@ -165,6 +201,123 @@ export function useRegularChannelFlow(mode: RegularFlowMode = 'full') {
     );
   }
 
+  // Same shape as ensureHubConnected, and for the same reason: dialling a peer
+  // that is already connected does not no-op, it hangs until the handshake
+  // times out. A second funding run in one session hits exactly that.
+  async function ensureRegularConnected(wallet: UTEXOWallet, attempts = 4) {
+    let lastErr: unknown;
+    for (let i = 0; i < attempts; i++) {
+      checkAbort();
+      try {
+        const peers = await wallet.listPeers().catch(() => []);
+        if (peers.some((p) => p.pubkey === REGULAR_PUBKEY && p.isConnected !== false)) {
+          addLog('  regular_web already connected — reusing the session');
+          return;
+        }
+        await wallet.connectPeer(`${REGULAR_PUBKEY}@127.0.0.1:${REGULAR_LDK_PORT}`);
+        return;
+      } catch (e) {
+        lastErr = e;
+        addLog(`  regular_web connect attempt ${i + 1}/${attempts}: ${e}`);
+        await sleep(2000);
+      }
+    }
+    throw new Error(
+      `could not connect to regular_web after ${attempts} attempts: ${lastErr}`
+    );
+  }
+
+  // Minimal wallet for the cold-start funding test: create, fund, sync, stop.
+  // Intentionally NOT what runFlow() does — no createUtxos, no channel, no
+  // payments — so the only difference from a warm run is how much the BDK
+  // wallet has done before input selection.
+  async function bootstrapColdWallet(): Promise<UTEXOWallet> {
+    const mnemonic = await stableMnemonic();
+    const fresh = Date.now().toString(16);
+    addLog(`→ create wallet (cold)  network=regtest dataDir=/funding_${fresh}`);
+    const wallet = new UTEXOWallet({
+      network: 'regtest',
+      mnemonic,
+      password: 'apay-regular',
+      proxyUrl: CFG.gatewayWs,
+      transportEndpoint: CFG.transport,
+      indexerUrl: CFG.indexer,
+      skipConsistencyCheck: true,
+      dataDir: `/funding_${fresh}`,
+      nodeRuntimeId: `funding-${fresh}`,
+      vssUrl: DEMO_VSS_URL,
+    });
+    await wallet.init();
+    await wallet.unlock();
+    walletRef.current = wallet;
+    tabHasFlowWallet = true;
+    if (!wallet.isOnline())
+      throw new Error(`indexer unreachable at ${CFG.indexer} — is the LSP web stack running?`);
+    const address = await wallet.getAddress();
+    addressRef.current = address;
+    addLog(`← wallet ready  address=${short(address)}`, 'success');
+
+    addLog('→ gatewayFund  btc=1 mine=6');
+    await gatewayFund(address, 1, 6);
+    for (let i = 0; i < 20; i++) {
+      checkAbort();
+      await wallet.syncWallet();
+      const b = (await wallet.getBtcBalance()) as { vanilla?: { spendable?: number } };
+      if ((b?.vanilla?.spendable ?? 0) > 0) break;
+      await sleep(2000);
+    }
+    addLog('← funded (cold — no createUtxos, no payments)', 'success');
+    return wallet;
+  }
+
+  // Wait for THIS funding tx's channel to lock in. Mining a block each pass is
+  // what confirms it; listChannels is the drive beat — the wasm node has no
+  // background executor, so a run that stops polling stops the channel dead
+  // even after the funding tx has plenty of confirmations.
+  //
+  // mineBlocks, not gatewayFund: this flow's whole subject is which UTXOs BDK
+  // picked, so it must not be paying the wallet while it waits. mineBlocks
+  // generates to bitcoind's own address and leaves the wallet untouched.
+  //
+  // Matching on fundingTxid, not peerPubkey: a second run in the same session
+  // opens a SECOND channel to the same peer, and a pubkey match would latch
+  // onto the first run's already-ready channel and report success in one poll
+  // — while the channel it actually opened never gets driven to ready.
+  async function waitFundedChannelReady(wallet: UTEXOWallet, fundingTxid: string) {
+    const deadline = Date.now() + FUNDING_READY_TIMEOUT_S * 1000;
+    while (Date.now() < deadline) {
+      checkAbort();
+      await mineBlocks(1).catch(() => {});
+      await sleep(POLL_INTERVAL_MS);
+      const channels = await wallet.listChannels().catch(() => []);
+      const chan = channels.find(
+        (c) => c.fundingTxid === fundingTxid || (!c.fundingTxid && c.peerPubkey === REGULAR_PUBKEY)
+      );
+      // Full listChannels each pass, not just the matched row: with several
+      // channels to the same peer the interesting question is usually which of
+      // them moved, and a one-line summary hides exactly that.
+      addLog(
+        `  listChannels (${channels.length}): ` +
+          (channels
+            .map(
+              (c) =>
+                `${short(c.fundingTxid ?? c.channelId, 10)}${
+                  c.fundingTxid === fundingTxid ? '*' : ''
+                }=${c.ready ? 'ready' : 'pending'}${c.isUsable ? '/usable' : ''}` +
+                `${c.assetId ? `/rgb${c.assetLocalAmount ?? 0}` : ''}`
+            )
+            .join('  ') || '(none)')
+      );
+      addLog(
+        `  channel ${short(fundingTxid, 12)}: ${
+          chan ? (chan.ready ? 'ready' : 'pending') : 'absent'
+        }`
+      );
+      if (chan?.ready) return chan;
+    }
+    return undefined;
+  }
+
   // The relay ws session can drop while blocks confirm — reconnect quietly.
   async function ensureHubConnected(wallet: UTEXOWallet, attempts = 4) {
     let lastErr: unknown;
@@ -174,7 +327,7 @@ export function useRegularChannelFlow(mode: RegularFlowMode = 'full') {
         const peers = await wallet.listPeers().catch(() => []);
         if (peers.some((p) => p.pubkey === hubPubkeyRef.current && p.isConnected !== false))
           return;
-        await wallet.connectPeer(`127.0.0.1:${FAUCET_LDK_PORT}`, hubPubkeyRef.current);
+        await wallet.connectPeer(`${hubPubkeyRef.current}@127.0.0.1:${FAUCET_LDK_PORT}`);
         return;
       } catch (e) {
         lastErr = e;
@@ -456,23 +609,23 @@ export function useRegularChannelFlow(mode: RegularFlowMode = 'full') {
       throw new Error('wasm → hub payment failed immediately');
     }
 
-    // getLightningSendRequest polls getPayment — each call is also a drive beat.
+    // getLightningSendStatus polls getPayment — each call is also a drive beat.
     const sendDeadline = Date.now() + SETTLE_TIMEOUT_S * 1000;
     let sendStatus: string | null = 'WaitingCounterparty';
     while (Date.now() < sendDeadline) {
       checkAbort();
       await gatewayFund(address, 0.001, 1).catch(() => {});
       await sleep(POLL_INTERVAL_MS);
-      sendStatus = await wallet.getLightningSendRequest(sent.txid);
+      sendStatus = await wallet.getLightningSendStatus(sent.txid);
       setPayment({
         direction: 'wasm→hub',
         paymentHash: sent.txid,
         status: sendStatus ?? 'Pending',
       });
       addLog(`  wasm → hub: ${sendStatus ?? 'Pending'}`);
-      if (sendStatus === 'Settled' || sendStatus === 'Failed') break;
+      if (sendStatus === 'Succeeded' || sendStatus === 'Failed') break;
     }
-    if (sendStatus !== 'Settled') {
+    if (sendStatus !== 'Succeeded') {
       throw new Error(`wasm → hub payment did not settle (last status: ${sendStatus})`);
     }
     const wasmRgb1 = await waitWasmRgb(
@@ -520,16 +673,16 @@ export function useRegularChannelFlow(mode: RegularFlowMode = 'full') {
       checkAbort();
       await gatewayFund(address, 0.001, 1).catch(() => {});
       await sleep(POLL_INTERVAL_MS);
-      recvStatus = await wallet.getLightningReceiveRequest(lnInvoice);
+      recvStatus = await wallet.getLightningReceiveStatus(lnInvoice);
       setPayment({
         direction: 'hub→wasm',
         paymentHash: hubSent.payment_hash,
         status: recvStatus ?? 'Pending',
       });
       addLog(`  hub → wasm: ${recvStatus ?? 'Pending'}`);
-      if (recvStatus === 'Settled' || recvStatus === 'Failed') break;
+      if (recvStatus === 'Succeeded' || recvStatus === 'Failed') break;
     }
-    if (recvStatus !== 'Settled') {
+    if (recvStatus !== 'Succeeded') {
       throw new Error(`hub → wasm payment did not settle (last status: ${recvStatus})`);
     }
     const wasmRgb2 = await waitWasmRgb(
@@ -698,7 +851,7 @@ export function useRegularChannelFlow(mode: RegularFlowMode = 'full') {
         await gatewayFund(addressRef.current, 0.001, 1).catch(() => {});
         await sleep(POLL_INTERVAL_MS);
         const chan = await readWasmChannel(wallet); // drive beat
-        const status = await wallet.getLightningSendRequest(ks.paymentHash);
+        const status = await wallet.getLightningSendStatus(ks.paymentHash);
         setRepro({
           direction: 'wasm→hub',
           paymentHash: ks.paymentHash,
@@ -715,7 +868,7 @@ export function useRegularChannelFlow(mode: RegularFlowMode = 'full') {
           addLog('unexpected channel close during wasm → hub keysend', 'error');
           return;
         }
-        if (status === 'Settled') {
+        if (status === 'Succeeded') {
           const nowRgb = Number(chan.assetLocalAmount ?? 0);
           const hubChan = await readHubChannel(wasmPubkeyRef.current).catch(() => undefined);
           setReproOutcome({
@@ -750,6 +903,181 @@ export function useRegularChannelFlow(mode: RegularFlowMode = 'full') {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [addLog]);
+
+  // ── Wallet-funded open (§6.0s repro) ────────────────────────────────────────
+  // Every other flow here has the NATIVE side open the channel, so the native
+  // node builds and broadcasts the funding tx and the browser never funds
+  // anything. This one inverts that: the wasm node opens, and the app must fund
+  // it itself —
+  //
+  //   openChannel → listPendingFundingRequests → buildLightningFundingTx
+  //               → submitFundingTransaction → (broadcast) → channel_ready
+  //
+  // The peer is `regular_web`, NOT the hub: both hub daemons run with
+  // --enable-virtual-channels-v0 and reject a wasm-initiated open with
+  // `unsupported_scid_alias` (§6.0r).
+  //
+  // The known failure is that the channel stalls at "pending awaiting funding
+  // lock-in" because the funding tx never reaches the mempool. Rather than just
+  // reproducing that, this flow BISECTS it: when the indexer has not seen the
+  // tx, it POSTs the very same hex to esplora directly, bypassing the SDK. That
+  // single answer splits the two candidate causes apart — see FundingOutcome.
+  const runWalletFundedOpen = useCallback(async () => {
+    setFundingRunning(true);
+    setFunding(null);
+    setFundingOutcome(null);
+    const prevPhase = phase;
+    setPhase('rc_funding');
+    try {
+      if (!REGULAR_PUBKEY) {
+        throw new Error(
+          'VITE_REGULAR_PEER_PUBKEY is unset — re-run scripts/start-lsp-web.sh to ' +
+            'write it into .env.local (the regular_web daemon must be up).'
+        );
+      }
+
+      // Cold start. Running this button without the main flow first is the
+      // actual experiment for §6.0s: the warm path reaches openChannel with a
+      // BDK view that has just been synced and pushed through four payments,
+      // and the stale-view input-selection theory (§6.0l) predicts only the
+      // warm path succeeds. So bootstrap the bare minimum — create, fund, sync —
+      // and deliberately skip createUtxos and every payment leg.
+      const wallet = walletRef.current ?? (await bootstrapColdWallet());
+      const address = addressRef.current;
+
+      // 1. Dial regular_web through the gateway relay (outbound-only, so the
+      //    browser must connect first — same constraint as the hub).
+      addLog(`→ connectPeer  regular_web ${short(REGULAR_PUBKEY)}@:${REGULAR_LDK_PORT}`);
+      await ensureRegularConnected(wallet);
+
+      // 2. Open AND fund, in one call. The SDK owns the whole handshake now
+      //    (openChannel → listPendingFundingRequests → buildLightningFundingTx
+      //    → submitFundingTransaction), so this repro measures what an app
+      //    actually calls rather than a sequence only this file performed.
+      //
+      //    BTC-only: whether the funding tx reaches the mempool has nothing to
+      //    do with the asset leg, and omitting it removes a variable. The fee
+      //    rate comes from the wallet's feeRateSatVb, mirroring the native
+      //    daemon's [rgb] fee_rate_sat_vb.
+      //
+      //    No mining anywhere in here: FundingGenerationReady is a peer
+      //    protocol event, and the wallet must not receive fresh UTXOs in the
+      //    moments before BDK selects its inputs — that would perturb exactly
+      //    what §6.0l suspects. Mine only where confirmations are genuinely
+      //    awaited, i.e. waitFundedChannelReady.
+      addLog(`→ openChannel  capacity=${FUNDING_CAPACITY_SAT} sat (no asset, funds itself)`);
+      const opened = await wallet.openChannel({
+        peerPubkey: REGULAR_PUBKEY,
+        capacitySat: FUNDING_CAPACITY_SAT,
+        isPublic: false,
+      });
+      const txid = opened.fundingTxid ?? '';
+      const fundingTxHex = opened.fundingTxHex ?? '';
+      if (!txid || !fundingTxHex) {
+        throw new Error('openChannel returned no funding tx — the channel is open but unfunded');
+      }
+      addLog(
+        `← temporaryChannelId ${short(opened.temporaryChannelId, 32)}  ` +
+          `funding txid=${short(txid)}  ${fundingTxHex.length / 2} bytes`
+      );
+      setFunding({
+        temporaryChannelId: opened.temporaryChannelId,
+        counterpartyNodeId: REGULAR_PUBKEY,
+        channelValueSat: FUNDING_CAPACITY_SAT,
+        txid,
+        sdkBroadcast: null,
+      });
+
+      // 6. Did the SDK's broadcast path actually publish it?
+      let seen = false;
+      const bcDeadline = Date.now() + FUNDING_BROADCAST_TIMEOUT_S * 1000;
+      while (Date.now() < bcDeadline) {
+        checkAbort();
+        await wallet.listChannels().catch(() => []); // drive beat
+        await mineBlocks(1).catch(() => {}); // mine-only — never pay the wallet mid-flow
+        const at = await indexerTxSeen(txid);
+        if (at) {
+          seen = true;
+          addLog(`  indexer: funding tx present (${at.confirmed ? 'confirmed' : 'mempool'})`);
+          break;
+        }
+        addLog('  indexer: funding tx not seen yet');
+        await sleep(POLL_INTERVAL_MS);
+      }
+      setFunding((f) => (f ? { ...f, sdkBroadcast: seen } : f));
+
+      // 7. THE BISECT. The SDK did not publish it — try esplora directly with
+      //    the identical hex. Whatever esplora says settles which half is broken.
+      if (!seen) {
+        addLog(`indexer never saw ${short(txid)} — probing esplora directly`, 'error');
+        const probe = await indexerBroadcast(fundingTxHex);
+        setFunding((f) => (f ? { ...f, probe: probe.body } : f));
+        addLog(`← POST /tx  ${probe.accepted ? 'ACCEPTED' : 'REJECTED'}: ${probe.body || '(empty)'}`);
+
+        if (!probe.accepted) {
+          setFundingOutcome({
+            kind: 'tx_invalid',
+            detail:
+              'esplora rejected the same hex, so the SDK broadcast path is innocent — the ' +
+              `funding transaction itself is invalid. Most likely stale-view input selection ` +
+              `(§6.0l), which also explains why the one passing run was on a freshly ` +
+              `provisioned chain. esplora said: ${probe.body || '(empty response)'}`,
+          });
+          addLog('funding tx is invalid — not a broadcast problem', 'error');
+          return;
+        }
+
+        // Accepted out-of-band: the tx was always fine. Keep going, because
+        // whether the channel now locks in tells us if out-of-band broadcast is
+        // a complete fix or only half of one.
+        addLog('esplora accepted it — the tx was valid all along; SDK broadcast is the bug', 'error');
+        const ready = await waitFundedChannelReady(wallet, txid);
+        setFundingOutcome({
+          kind: 'broadcast_broken',
+          detail:
+            'The SDK never published the funding tx, but esplora accepted the identical hex ' +
+            'on a direct POST — so the transaction was always valid and the broken half is ' +
+            'our broadcast path (chainSyncEnqueueRebroadcastTx never flushes). ' +
+            (ready
+              ? 'After the out-of-band broadcast the channel became ready, so broadcasting ' +
+                'out-of-band is a complete fix — which is what upstream’s flow.js does.'
+              : 'The channel still did NOT become ready afterwards, so broadcast is not the ' +
+                'only problem — something downstream of lock-in is also wrong.'),
+        });
+        return;
+      }
+
+      // 8. The tx was published by the SDK. Does the channel lock in?
+      addLog('indexer saw the funding tx ✓ — waiting for channel_ready');
+      const ready = await waitFundedChannelReady(wallet, txid);
+      if (ready) {
+        setFundingOutcome({
+          kind: 'ready',
+          detail:
+            `Wallet-funded channel is ready ✓ — capacity ${ready.capacitySat} sat against ` +
+            'regular_web. The SDK broadcast the funding tx itself; scenario I passed this run.',
+        });
+        addLog('wallet-funded channel ready ✓', 'success');
+      } else {
+        setFundingOutcome({
+          kind: 'stalled',
+          detail:
+            'The funding tx IS in the indexer, yet the channel never became ready — it is ' +
+            'stuck at "pending awaiting funding lock-in". Broadcast is not the problem this ' +
+            'run; check the peer log on regular_web for what it did with FundingSigned.',
+        });
+        addLog('funding tx published but channel never locked in', 'error');
+      }
+    } catch (e) {
+      const msg = (e as Error)?.message ?? String(e);
+      addLog(`wallet-funded open: ${msg}`, 'error');
+      setFundingOutcome({ kind: 'inconclusive', detail: msg });
+    } finally {
+      setFundingRunning(false);
+      setPhase(prevPhase === 'idle' ? 'done' : prevPhase);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [addLog, phase]);
 
   // ── Cooperative close + on-chain settle check: the hub initiates the close
   // (native /closechannel), the wasm side co-signs through the relay session.
@@ -803,22 +1131,32 @@ export function useRegularChannelFlow(mode: RegularFlowMode = 'full') {
         if (!w && !h) break;
       }
 
-      // Success criterion is the HUB delta: the native side sweeps its close
-      // output into its rgb-lib wallet (RgbOutputSpender on SpendableOutputs),
-      // proving the split settled on-chain. The wasm-sdk has NO SpendableOutputs
-      // handler yet — its share stays colored on the close-tx output, invisible
-      // to getAssetBalance — so after the hub settles we only give the wasm
-      // side a short grace window before reporting the known gap.
-      addLog('waiting for the RGB split to settle on-chain…');
+      // BOTH sides must now settle on-chain. The native side has always swept
+      // its close output (RgbOutputSpender on SpendableOutputs); the wasm side
+      // gained the same pipeline in rgb-lightning-node PR #119 ("Settle
+      // on-chain RGB and BTC on the wasm side after channel close"), so its
+      // share reaching getAssetBalance is a real expectation rather than the
+      // known gap it used to be — hence no grace window, and no 'partial' as a
+      // success shape.
+      //
+      // Two things the wasm side needs and the hub does not:
+      //   - blocks, and plenty. The closing tx must mature past ANTI_REORG_DELAY
+      //     (6) before SpendableOutputs fires, then the sweep tx needs its own
+      //     confirmations. Mining 2 per poll matches upstream's own flow.
+      //   - `future`, not `settled`. The three Balance fields are views of one
+      //     total, not components of it (on a quiet wallet all three are equal,
+      //     so summing two double-counts). `future` is the view that includes
+      //     pending inflows — which is what a freshly swept close output is
+      //     until it confirms.
+      addLog('waiting for the RGB split to settle on-chain (both sides)…');
       const settleDeadline = Date.now() + SETTLE_TIMEOUT_S * 1000;
       let wasmBal: { settled?: number; future?: number; spendable?: number } | null = null;
       let hubSpendable = hubSpendableBefore;
-      let graceLeft = 5; // extra polls for the wasm side once the hub target is hit
       while (Date.now() < settleDeadline) {
         checkAbort();
-        await gatewayFund(addressRef.current, 0.001, 1).catch(() => {});
+        await mineBlocks(2).catch(() => {});
         await sleep(POLL_INTERVAL_MS);
-        await wallet.listChannels().catch(() => {}); // drive beat (close coloring)
+        await wallet.listChannels().catch(() => {}); // drive beat (close coloring + sweep)
         await wallet.syncWallet().catch(() => {});
         await wallet.refreshWallet().catch(() => {});
         wasmBal = await wallet.getAssetBalance(CFG.assetId).catch(() => null);
@@ -841,33 +1179,36 @@ export function useRegularChannelFlow(mode: RegularFlowMode = 'full') {
           hubSpendable,
           hubExpectedDelta,
         });
-        const wasmOk = wasmSettled >= wasmExpected;
+        const wasmOk = wasmFuture >= wasmExpected;
         const hubOk = hubSpendable >= hubSpendableBefore + hubExpectedDelta;
         if (wasmOk && hubOk) break;
-        if (hubOk && --graceLeft <= 0) break;
       }
 
       const assets = await wallet.listAssets().catch(() => null);
       if (assets) addLog(`listAssets: ${JSON.stringify(assets)}`);
 
       const wasmSettled = Number(wasmBal?.settled ?? 0);
+      const wasmFuture = Number(wasmBal?.future ?? 0);
+      const wasmTotal = wasmFuture;
       const hubDelta = hubSpendable - hubSpendableBefore;
-      const wasmOk = wasmSettled >= wasmExpected;
+      const wasmOk = wasmTotal >= wasmExpected;
       const hubOk = hubDelta >= hubExpectedDelta;
       const kind: CloseOutcome['kind'] = wasmOk && hubOk ? 'settled' : hubOk ? 'partial' : 'incomplete';
       setCloseOutcome({
         kind,
         detail:
           kind === 'settled'
-            ? `Close settled on-chain ✓ — wasm ${wasmSettled} RGB (channel-local was ${wasmExpected}), ` +
-              `hub +${hubDelta} RGB (channel-local was ${hubExpectedDelta}). ` +
-              'The 10-out / 5-back split survived the round trip.'
+            ? `Close settled on-chain ✓ — wasm ${wasmTotal} RGB (future; settled ${wasmSettled}; ` +
+              `channel-local was ${wasmExpected}), hub +${hubDelta} RGB ` +
+              `(channel-local was ${hubExpectedDelta}). The 10-out / 5-back split survived the ` +
+              'round trip, and the wasm side swept its own close output.'
             : kind === 'partial'
-              ? `Hub settled on-chain ✓ (+${hubDelta} RGB, matching its channel-local ${hubExpectedDelta}) — ` +
-                `the split was correct. The wasm side's ${wasmExpected} RGB is colored on the close-tx ` +
-                'output but the wasm-sdk has no SpendableOutputs/RGB sweep yet, so its wallet ' +
-                'balance stays 0 (known gap — funds recoverable once the sweep is implemented).'
-              : `On-chain settle incomplete — wasm settled ${wasmSettled}/${wasmExpected}, ` +
+              ? `Only the hub settled (+${hubDelta} RGB, matching its channel-local ${hubExpectedDelta}) — ` +
+                `the split was correct, but the wasm side recovered ${wasmTotal}/${wasmExpected}. ` +
+                'With the post-close sweep in place (rgb-lightning-node #119) this is a FAILURE, ' +
+                'not the old known gap: check that the sweep tx was broadcast and confirmed, and ' +
+                'that the closing tx matured past ANTI_REORG_DELAY (6 blocks).'
+              : `On-chain settle incomplete — wasm ${wasmTotal}/${wasmExpected}, ` +
                 `hub delta ${hubDelta}/${hubExpectedDelta}. May need more blocks/refreshes; check listtransfers.`,
       });
       addLog(
@@ -938,10 +1279,12 @@ export function useRegularChannelFlow(mode: RegularFlowMode = 'full') {
     setReproOutcome(null);
     setCloseOutcome(null);
     setOnchain(null);
+    setFunding(null);
+    setFundingOutcome(null);
   }, []);
 
   const isRunning = !['idle', 'done', 'error'].includes(phase);
-  const busy = isRunning || reproRunning || closeRunning;
+  const busy = isRunning || reproRunning || closeRunning || fundingRunning;
   return {
     phase,
     log,
@@ -960,8 +1303,20 @@ export function useRegularChannelFlow(mode: RegularFlowMode = 'full') {
     closeRunning,
     closeOutcome,
     onchain,
+    runWalletFundedOpen,
+    funding,
+    fundingOutcome,
+    fundingRunning,
     /** Keysend/close need a usable channel from a completed flow run in this tab. */
     canRepro: !!channel && phase === 'done' && !busy,
+    /**
+     * Runnable with or without the main flow: it opens its own channel to a
+     * different peer, and bootstraps its own wallet when none exists. Running it
+     * cold — first click in a fresh tab — is the §6.0s experiment.
+     */
+    canFund: !busy && !!REGULAR_PUBKEY,
+    /** True once a wallet exists, i.e. the next funding run will be a warm one. */
+    fundWarm: !!walletRef.current,
     envReady: !!CFG.assetId,
     isRunning,
   };

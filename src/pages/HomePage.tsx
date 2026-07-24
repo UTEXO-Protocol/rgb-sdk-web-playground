@@ -11,7 +11,7 @@ const cards = [
   {
     to: '/utexo-wallet',
     title: 'UTXO Wallet',
-    desc: 'Create an RLN-backed UTEXOWallet — RGB on-chain + Lightning, the full IWalletManager + IUTEXOProtocol surface',
+    desc: 'Create an RLN-backed UTEXOWallet — RGB on-chain + Lightning, the full IUTEXOProtocol surface',
   },
   {
     to: '/lsp-apay',
