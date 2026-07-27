@@ -51,8 +51,6 @@ export function UtexoOps({ utexo, walletId, network }: Props) {
   const [lnSendAssetId, setLnSendAssetId] = useState('');
   const [lnSendAmount, setLnSendAmount] = useState('');
   const [lnOut, setLnOut] = useState('');
-  const [lnPendingPsbt, setLnPendingPsbt] = useState<string | null>(null);
-  const [lnSignedPsbt, setLnSignedPsbt] = useState<string | null>(null);
 
   // Validate balance
   const [validateAssetId, setValidateAssetId] = useState('');
@@ -246,11 +244,18 @@ export function UtexoOps({ utexo, walletId, network }: Props) {
     } catch (e) { setOnchainOut('Error: ' + e); addLog('onchainSend failed: ' + e, 'err'); }
   }
 
+  // `getOnchainSendStatus` was removed in v3 — an on-chain send's state is the
+  // state of its transfer, so read it from listOnchainTransfers by invoice.
   async function handleGetOnchainSendStatus() {
     if (!onchainInvoice.trim()) { setOnchainOut('Enter invoice'); return; }
     try {
-      const result = await utexo.getOnchainSendStatus(onchainInvoice.trim());
-      setOnchainOut('Status: ' + json(result));
+      const transfers = await utexo.listOnchainTransfers(onchainAssetId.trim() || undefined);
+      const match = transfers.filter((t) => t.invoiceString === onchainInvoice.trim());
+      setOnchainOut(
+        match.length
+          ? 'Status: ' + json(match.map((t) => ({ status: t.status, kind: t.kind, txid: t.txid })))
+          : 'No transfer found for that invoice'
+      );
     } catch (e) { setOnchainOut('Error: ' + e); }
   }
 
@@ -275,36 +280,6 @@ export function UtexoOps({ utexo, walletId, network }: Props) {
     } catch (e) { setLnOut('Error: ' + e); addLog('createLightningInvoice failed: ' + e, 'err'); }
   }
 
-  async function handlePayLnBegin() {
-    if (!lnInvoice.trim()) { setLnOut('Enter LN invoice'); return; }
-    try {
-      addLog('payLightningInvoiceBegin...', 'info');
-      const psbt = await utexo.payLightningInvoiceBegin({ lnInvoice: lnInvoice.trim(), assetId: lnSendAssetId.trim() || undefined, amount: lnSendAmount ? parseInt(lnSendAmount) : undefined });
-      setLnPendingPsbt(psbt);
-      setLnSignedPsbt(null);
-      setLnOut('Step 1 — Unsigned PSBT:\n' + psbt);
-      addLog('LN pay PSBT ready', 'ok');
-    } catch (e) { setLnOut('Error: ' + e); addLog('payLightningInvoiceBegin failed: ' + e, 'err'); }
-  }
-
-  async function handlePayLnSign() {
-    if (!lnPendingPsbt) { setLnOut('Run Step 1 first'); return; }
-    addLog('Signing LN PSBT...', 'info');
-    const signed = await utexo.signPsbt(lnPendingPsbt);
-    setLnSignedPsbt(signed);
-    setLnOut('Step 2 — Signed PSBT:\n' + signed);
-    addLog('LN PSBT signed', 'ok');
-  }
-
-  async function handlePayLnEnd() {
-    if (!lnSignedPsbt) { setLnOut('Sign PSBT first'); return; }
-    addLog('payLightningInvoiceEnd...', 'info');
-    const result = await utexo.payLightningInvoiceEnd({ signedPsbt: lnSignedPsbt });
-    setLnPendingPsbt(null); setLnSignedPsbt(null);
-    setLnOut('Result:\n' + json(result));
-    addLog('LN pay complete', 'ok');
-  }
-
   async function handlePayLnAuto() {
     if (!lnInvoice.trim()) { setLnOut('Enter LN invoice'); return; }
     addLog('payLightningInvoice (auto)...', 'info');
@@ -318,7 +293,7 @@ export function UtexoOps({ utexo, walletId, network }: Props) {
   async function handleGetLnSendRequest() {
     if (!lnInvoice.trim()) { setLnOut('Enter LN invoice'); return; }
     try {
-      const result = await utexo.getLightningSendRequest(lnInvoice.trim());
+      const result = await utexo.getLightningSendStatus(lnInvoice.trim());
       setLnOut('Status: ' + json(result));
     } catch (e) { setLnOut('Error: ' + e); }
   }
@@ -326,7 +301,7 @@ export function UtexoOps({ utexo, walletId, network }: Props) {
   async function handleGetLnReceiveRequest() {
     if (!lnInvoice.trim()) { setLnOut('Enter LN invoice'); return; }
     try {
-      const result = await utexo.getLightningReceiveRequest(lnInvoice.trim());
+      const result = await utexo.getLightningReceiveStatus(lnInvoice.trim());
       setLnOut('Status: ' + json(result));
     } catch (e) { setLnOut('Error: ' + e); }
   }
@@ -486,14 +461,10 @@ export function UtexoOps({ utexo, walletId, network }: Props) {
           <Btn variant="secondary" onClick={handleGetLnSendRequest}>Get LN Send Status</Btn>
           <Btn variant="secondary" onClick={handleGetLnReceiveRequest}>Get LN Receive Status</Btn>
         </div>
-        <StepFlow
-          steps={[
-            { label: '1. Begin (get PSBT)', onClick: handlePayLnBegin },
-            { label: '2. Sign PSBT', variant: 'warning', onClick: handlePayLnSign },
-            { label: '3. Broadcast', variant: 'accent', onClick: handlePayLnEnd },
-          ]}
-          auto={{ label: 'Pay LN Invoice (auto)', onClick: handlePayLnAuto }}
-        />
+        {/* v3: paying an LN invoice is atomic — the begin/sign/end trio is gone. */}
+        <div className="flex gap-2 mb-4 flex-wrap">
+          <Btn variant="accent" onClick={handlePayLnAuto}>Pay LN Invoice</Btn>
+        </div>
         <OutputBox value={lnOut} />
       </Section>
 

@@ -127,7 +127,7 @@ export function useApaySignetFlow(role: Role) {
           buyerSettledRef.current = false;
           addLog(`buyer payment hash received: ${short(m.paymentHash)} — watching settlement`);
         }
-        if (m.status === 'Settled') buyerSettledRef.current = true;
+        if (m.status === 'Succeeded') buyerSettledRef.current = true;
         setOtherStatus(`buyer payment: ${m.status}`);
       } else if (m.type === 'verdict' && role === 'buyer') {
         setCheckout({ ok: m.ok, soft: m.soft, detail: m.detail });
@@ -418,10 +418,10 @@ export function useApaySignetFlow(role: Role) {
 
         const pays = await wallet.listPayments().catch(() => []);
         const mp = pays.find((p) => normHash(p.paymentHash) === normHash(hash));
-        const mpStatus = String(mp?.rawStatus ?? mp?.status ?? '').toLowerCase();
+        const mpStatus = String(mp?.status ?? '').toLowerCase();
         addLog(
           `watch: channel RGB ${nowRgb} (Δ${delta >= 0 ? '+' : ''}${delta})  inbound=${
-            mp ? `${mp.inbound ? 'inbound' : 'outbound'}/${mp.rawStatus ?? mp.status}` : 'none'
+            mp ? `${mp.inbound ? 'inbound' : 'outbound'}/${mp.status}` : 'none'
           }  buyerSettled=${buyerSettledRef.current}`
         );
 
@@ -594,14 +594,14 @@ export function useApaySignetFlow(role: Role) {
     while (Date.now() < settleDeadline) {
       checkAbort();
       await sleep(POLL_MS);
-      payStatus = await wallet.getLightningSendRequest(pHash);
+      payStatus = await wallet.getLightningSendStatus(pHash);
       setSendStatus(payStatus ?? 'Pending');
       post({ type: 'payment', paymentHash: pHash, status: payStatus ?? 'Pending' });
-      addLog(`  getLightningSendRequest: ${payStatus ?? 'Pending'}`);
-      if (payStatus === 'Settled' || payStatus === 'Failed') break;
+      addLog(`  getLightningSendStatus: ${payStatus ?? 'Pending'}`);
+      if (payStatus === 'Succeeded' || payStatus === 'Failed') break;
     }
     if (payStatus === 'Failed') throw new Error('buyer payment Failed during LSP settlement');
-    if (payStatus !== 'Settled') {
+    if (payStatus !== 'Succeeded') {
       throw new Error('Timeout — payment did not settle; ensure the Merchant window stays open.');
     }
 

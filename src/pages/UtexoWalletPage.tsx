@@ -151,7 +151,6 @@ export function UtexoWalletPage() {
   const [ifaPrecision, setIfaPrecision] = useState('0');
   const [ifaAmounts, setIfaAmounts] = useState('500');
   const [ifaInflationAmounts, setIfaInflationAmounts] = useState('1000');
-  const [ifaReplaceRights, setIfaReplaceRights] = useState('0');
   const [ifaOut, setIfaOut] = useState('');
 
   const [listOut, setListOut] = useState('');
@@ -640,7 +639,7 @@ export function UtexoWalletPage() {
     if (!ticker || !name || amounts.length === 0) { setIfaOut('Fill ticker, name, amounts'); return; }
     try {
       addLog('Issuing IFA ' + ticker + '...', 'info');
-      const asset = await utexo.issueAssetIfa({ ticker, name, precision: parseInt(ifaPrecision) || 0, amounts, inflationAmounts, replaceRightsNum: parseInt(ifaReplaceRights) || 0, rejectListUrl: null });
+      const asset = await utexo.issueAssetIfa({ ticker, name, precision: parseInt(ifaPrecision) || 0, amounts, inflationAmounts, rejectListUrl: null });
       setIfaOut(json(asset));
       addLog('IFA issued', 'ok');
     } catch (e) { setIfaOut('Error: ' + e); addLog('Issue IFA failed: ' + e, 'err'); }
@@ -787,7 +786,7 @@ export function UtexoWalletPage() {
   async function handleGetLnSendStatus() {
     if (!utexo || !lnPaymentHash.trim()) { setLnStatusOut('Enter payment hash (returned as txid by payLightningInvoice)'); return; }
     try {
-      const result = await utexo.getLightningSendRequest(lnPaymentHash.trim());
+      const result = await utexo.getLightningSendStatus(lnPaymentHash.trim());
       setLnStatusOut('Status: ' + json(result));
     } catch (e) { setLnStatusOut('Error: ' + e); }
   }
@@ -795,7 +794,7 @@ export function UtexoWalletPage() {
   async function handleGetLnReceiveStatus() {
     if (!utexo || !lnInvoice.trim()) { setLnStatusOut('Enter LN invoice'); return; }
     try {
-      const result = await utexo.getLightningReceiveRequest(lnInvoice.trim());
+      const result = await utexo.getLightningReceiveStatus(lnInvoice.trim());
       setLnStatusOut('Status: ' + json(result));
     } catch (e) { setLnStatusOut('Error: ' + e); }
   }
@@ -847,7 +846,7 @@ export function UtexoWalletPage() {
     if (!lnPeerAddr.trim() || !lnPeerPubkey.trim()) { setLnPeersOut('Enter peer address and pubkey'); return; }
     try {
       addLog('connectPeer...', 'info');
-      await utexo.connectPeer(lnPeerAddr.trim(), lnPeerPubkey.trim());
+      await utexo.connectPeer(`${lnPeerPubkey.trim()}@${lnPeerAddr.trim()}`);
       setLnPeersOut('Connected to ' + lnPeerPubkey.trim());
       addLog('connectPeer done', 'ok');
     } catch (e) { setLnPeersOut('Error: ' + e); addLog('connectPeer failed: ' + e, 'err'); }
@@ -1490,9 +1489,6 @@ export function UtexoWalletPage() {
           <Field label="Inflation amounts (comma-separated)">
             <input value={ifaInflationAmounts} onChange={(e) => setIfaInflationAmounts(e.target.value)} className={inputCls} />
           </Field>
-          <Field label="Replace rights num">
-            <input type="number" value={ifaReplaceRights} onChange={(e) => setIfaReplaceRights(e.target.value)} className={inputCls} min="0" />
-          </Field>
         </div>
         <Btn onClick={handleIssueIfa} disabled={!utexo}>issueAssetIfa()</Btn>
         <OutputBox label="Issued IFA" value={ifaOut} />
@@ -1748,7 +1744,7 @@ export function UtexoWalletPage() {
       </Section>
 
       {/* ── LN Status & Decode ────────────────────────────────────────────── */}
-      <Section id="sec-ln-status" title="21. Payment Status & Decode" hint="getLightningSendRequest(paymentHash) · getLightningReceiveRequest(invoice) · decodeLnInvoice(invoice)">
+      <Section id="sec-ln-status" title="21. Payment Status & Decode" hint="getLightningSendStatus(paymentHash) · getLightningReceiveStatus(invoice) · decodeLnInvoice(invoice)">
         {utexoWarn}
         <div className="flex gap-4 mb-2 flex-wrap">
           <Field label="LN invoice (receive status / decode)">
@@ -1759,8 +1755,8 @@ export function UtexoWalletPage() {
           </Field>
         </div>
         <div className="flex gap-2 flex-wrap">
-          <Btn variant="secondary" onClick={handleGetLnSendStatus} disabled={!utexo}>getLightningSendRequest()</Btn>
-          <Btn variant="secondary" onClick={handleGetLnReceiveStatus} disabled={!utexo}>getLightningReceiveRequest()</Btn>
+          <Btn variant="secondary" onClick={handleGetLnSendStatus} disabled={!utexo}>getLightningSendStatus()</Btn>
+          <Btn variant="secondary" onClick={handleGetLnReceiveStatus} disabled={!utexo}>getLightningReceiveStatus()</Btn>
           <Btn variant="secondary" onClick={handleDecodeLnInvoice} disabled={!utexo}>decodeLnInvoice()</Btn>
         </div>
         <OutputBox value={lnStatusOut} />

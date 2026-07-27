@@ -18,7 +18,9 @@
     "noFallthroughCasesInSwitch": true,
     "paths": {
       "@utexo/rgb-sdk-core": ["../rgb-sdk-core/src/index.ts"],
-      "@utexo/rgb-sdk-core/*": ["../rgb-sdk-core/src/*"]
+      "@utexo/rgb-sdk-core/*": ["../rgb-sdk-core/src/*"],
+      "@utexo/rgb-sdk-web": ["../rgb-sdk-web/src/index.ts"],
+      "@utexo/rgb-sdk-web/*": ["../rgb-sdk-web/src/*"]
     }
   },
   "include": ["src"]

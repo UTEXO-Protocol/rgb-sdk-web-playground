@@ -368,7 +368,7 @@ export function RegtestLspFlow() {
     const payHash = String(res.txid ?? '');
     log(`pay status: ${res.status ?? 'sent'} (payment hash ${payHash})`, 'ok');
 
-    // Poll until Settled — each getLightningSendRequest poll also drives the wasm
+    // Poll until Settled — each getLightningSendStatus poll also drives the wasm
     // node's queued RGB work (HTLC/commitment coloring), without which the HTLC
     // never leaves this node. Mirrors the RN flow's sender-side settle loop.
     setPhase('settle');
@@ -377,12 +377,12 @@ export function RegtestLspFlow() {
     while (Date.now() < payDeadline) {
       await gatewayFund(address, 0.001, 1).catch(() => {});
       await sleep(3000);
-      payStatus = await wallet.getLightningSendRequest(payHash);
+      payStatus = await wallet.getLightningSendStatus(payHash);
       log(`  send status: ${payStatus ?? 'Pending'}`);
-      if (payStatus === 'Settled' || payStatus === 'Failed') break;
+      if (payStatus === 'Succeeded' || payStatus === 'Failed') break;
     }
     if (payStatus === 'Failed') throw new Error('payment Failed');
-    if (payStatus !== 'Settled') log('send did not settle within timeout', 'err');
+    if (payStatus !== 'Succeeded') log('send did not settle within timeout', 'err');
     else log('payment Settled ✓', 'ok');
 
     await showAssetBalance('sender (after)');

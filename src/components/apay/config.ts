@@ -22,6 +22,19 @@ export const FAUCET_API =
 // Faucet RLN LDK peer port — the wasm node dials it through the gateway ws relay.
 export const FAUCET_LDK_PORT = Number(env.VITE_FAUCET_LDK_PORT ?? 9748);
 
+// ── regular_web: the third daemon, started WITHOUT --enable-virtual-channels-v0
+// (start-lsp-web.sh, VIRTUAL_CHANNELS=0). A node with that flag rejects a
+// wasm-initiated open with `unsupported_scid_alias`, so this is the only peer
+// the browser can open a channel *to* (MIGRATION-PLAN-v3 §6.0r/§6.0s).
+// No REST base here on purpose: the gateway proxies only the faucet's API
+// (/dev/regular-rln → :3108). Readiness is read from the wasm side via
+// listChannels, so the pubkey and the peer port are all this flow needs.
+export const REGULAR_PUBKEY = env.VITE_REGULAR_PEER_PUBKEY ?? '';
+export const REGULAR_LDK_PORT = Number(env.VITE_REGULAR_LDK_PORT ?? 9750);
+
+/** Same-origin esplora (vite proxy → CFG.indexer); esplora sends no CORS headers. */
+export const INDEXER_PROXY = '/indexer';
+
 export const BC_NAME = 'utexo-apay-flow';
 
 export const CART_ITEM = '1× RGB Token (UTST)';
@@ -54,6 +67,17 @@ export const REGULAR_PAY_MSAT = 3_000_000;
 /** Hub-initiated keysend repro (channel_issue.md) — asset amount matches the report. */
 export const KEYSEND_REPRO_ASSET_AMOUNT = 30;
 
+// ── Wallet-funded open repro (§6.0s) ────────────────────────────────────────
+// Matches tests/e2e/i-funding.spec.ts in rgb-sdk-web so a demo run and a spec
+// run are comparable. BTC-only: the asset leg is irrelevant to whether the
+// funding tx reaches the mempool, and leaving it out removes a variable.
+export const FUNDING_CAPACITY_SAT = 100_000;
+export const FUNDING_FEE_RATE = 2;
+/** How long to wait for the funding tx to appear in the indexer before probing. */
+export const FUNDING_BROADCAST_TIMEOUT_S = 60;
+/** How long to wait for channel_ready once the tx is in the mempool. */
+export const FUNDING_READY_TIMEOUT_S = 300;
+
 export type Role = 'merchant' | 'buyer';
 
 export type Phase =
@@ -79,6 +103,7 @@ export type Phase =
   | 'rc_pay'
   | 'rc_payback'
   | 'rc_keysend'
+  | 'rc_funding'
   | 'done'
   | 'error';
 
@@ -105,6 +130,7 @@ export const PHASE_LABELS: Record<Phase, string> = {
   rc_pay: 'Pay →hub',
   rc_payback: 'Pay ←hub',
   rc_keysend: 'Keysend',
+  rc_funding: 'Wallet-funded open',
   done: 'Done',
   error: 'Error',
 };
@@ -166,6 +192,45 @@ export const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
 export const short = (s: string, n = 24) =>
   (s || '').slice(0, n) + ((s || '').length > n ? '…' : '');
 export const normHash = (h: string) => (h || '').toLowerCase().replace(/^0x/, '');
+
+/**
+ * Has the indexer actually seen this transaction?
+ *
+ * Must be `GET /tx/<txid>`, which 404s on an unknown txid. Do NOT use
+ * `/tx/<txid>/status` for presence: esplora answers that one with
+ * **HTTP 200 `{"confirmed":false}`** for a txid that has never existed, so an
+ * `r.ok` test there reports every transaction as broadcast — including one that
+ * was never published at all.
+ */
+export async function indexerTxSeen(
+  txid: string
+): Promise<{ confirmed: boolean } | null> {
+  const r = await fetch(`${INDEXER_PROXY}/tx/${txid}`);
+  if (!r.ok) return null; // 404 — never seen, not even in the mempool
+  const tx = (await r.json().catch(() => null)) as {
+    status?: { confirmed?: boolean };
+  } | null;
+  return { confirmed: !!tx?.status?.confirmed };
+}
+
+/**
+ * Push a raw tx straight to esplora, bypassing the SDK entirely.
+ *
+ * This is the bisect for §6.0s: if esplora accepts the same hex the SDK failed
+ * to broadcast, the transaction is valid and only our broadcast path is broken;
+ * if esplora rejects it, the transaction itself is wrong (stale-view input
+ * selection — the §6.0l race) and the broadcast path is innocent.
+ */
+export async function indexerBroadcast(
+  txHex: string
+): Promise<{ accepted: boolean; body: string }> {
+  const r = await fetch(`${INDEXER_PROXY}/tx`, {
+    method: 'POST',
+    headers: { 'content-type': 'text/plain' },
+    body: txHex,
+  });
+  return { accepted: r.ok, body: (await r.text().catch(() => '')).trim() };
+}
 
 export async function gatewayFund(
   address: string,
